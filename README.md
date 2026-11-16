@@ -31,6 +31,8 @@ public/            ← 배포되는 사이트 (빌드 과정 없음)
   js/map.js        층별 지도 그리기
   js/app.js        화면 흐름
 tools/validate.js  도면 데이터 점검 도구
+tools/cloudflare.sh Cloudflare Pages 확인·배포 상태·프로젝트 생성 도우미
+CLAUDE.md          Claude 작업 지침 (배포 절차 등)
 wrangler.toml      Cloudflare Pages 설정
 ```
 
