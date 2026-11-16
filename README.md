@@ -53,12 +53,16 @@ cd public && python3 -m http.server 8080
 
 ## Cloudflare Pages 배포
 
-**방법 1 — GitHub 연결 (자동 배포)**
-Cloudflare 대시보드 → Workers & Pages → Create → Pages → 이 저장소 연결 후
-- Build command: *(비워 둠)*
-- Build output directory: `public`
+주소: **https://kis-peekok.pages.dev**
 
-**방법 2 — 명령어로 직접 배포**
+Cloudflare Pages 프로젝트 `kis-peekok` 이 이 GitHub 저장소에 연결되어 있어서, 푸시하면 자동으로 배포됩니다.
+- 운영 브랜치: `claude/relaxed-rubin-1vbjfb` → `kis-peekok.pages.dev`
+- 다른 브랜치: 브랜치별 미리보기 주소가 따로 만들어집니다.
+- Build command: *(없음)* · Build output directory: `public`
+
+나중에 `main` 브랜치를 운영 브랜치로 쓰려면 Cloudflare 대시보드 → Workers & Pages → kis-peekok → Settings → Builds 에서 Production branch 를 바꿉니다.
+
+**명령어로 직접 배포할 때** (본인 컴퓨터에서)
 
 ```bash
 npx wrangler login
