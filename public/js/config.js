@@ -13,6 +13,7 @@ KIS.CONFIG = {
   robotLocation: { floor: 1, x: 325, y: 391, label: '1층 현관 로비' },
 
   idleTimeoutSec: 90,      // 아무 입력이 없으면 얼굴 화면으로 돌아가는 시간(초)
+  faceCaptions: true,      // 얼굴 화면에서 가끔 자막으로 말 걸기 ("저를 터치하면 길을 안내해 드려요")
   voice: true,             // 음성 안내(TTS) 기본값
   voiceRate: 1.05,
 

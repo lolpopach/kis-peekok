@@ -84,12 +84,12 @@ KIS.createFace = function (host, opts = {}) {
       <ellipse cx="120" cy="114" rx="52" ry="36" fill="url(#${id('scale')})"/>
       <ellipse cx="84" cy="146" rx="30" ry="25" fill="url(#${id('cheek')})"/>
       <ellipse cx="156" cy="146" rx="30" ry="25" fill="url(#${id('cheek')})"/>
-      <ellipse class="pk-blush" cx="72" cy="175" rx="9" ry="5" fill="#FFB4C6"/>
-      <ellipse class="pk-blush" cx="168" cy="175" rx="9" ry="5" fill="#FFB4C6"/>
+      <ellipse class="pk-blush" cx="72" cy="175" rx="9" ry="5" fill="#FF6F9E"/>
+      <ellipse class="pk-blush" cx="168" cy="175" rx="9" ry="5" fill="#FF6F9E"/>
       ${eye(84, false)}
       ${eye(156, true)}
       <g class="pk-beak" transform="translate(120 150)">
-        <ellipse class="pk-mouth" cx="0" cy="22" rx="7" ry="7" fill="#5B2230"/>
+        <ellipse class="pk-mouth" cx="0" cy="24" rx="4.2" ry="6" fill="#5B2230"/>
         <path class="pk-beak-low" d="M-8 12 Q-2 28 0 36 Q2 28 8 12 Q0 17 -8 12Z" fill="#C9B994"/>
         <path class="pk-beak-up" d="M-14 -1 Q0 -11 14 -1 Q12 17 0 32 Q-12 17 -14 -1Z" fill="url(#${id('beak')})"/>
         <path d="M0 -6 Q1.6 10 0 26" stroke="#fff" stroke-opacity=".55" stroke-width="2" fill="none" stroke-linecap="round"/>
@@ -98,7 +98,11 @@ KIS.createFace = function (host, opts = {}) {
     </g></g>
   </svg>`;
 
-  const svg = host.querySelector('svg');
+  return KIS.faceBehavior(host.querySelector('svg'), opts);
+};
+
+/* 표정·동작 (작은 얼굴과 화면 얼굴이 같이 사용) */
+KIS.faceBehavior = function (svg, opts = {}) {
   let mood = 'idle';
   let alive = true;
   let lastPointer = 0;
@@ -117,9 +121,9 @@ KIS.createFace = function (host, opts = {}) {
   }
   function look(x, y) {
     const cx = Math.max(-1, Math.min(1, x)), cy = Math.max(-1, Math.min(1, y));
-    svg.style.setProperty('--lx', `${(cx * 4.2).toFixed(2)}px`);
-    svg.style.setProperty('--ly', `${(cy * 4).toFixed(2)}px`);
-    svg.style.setProperty('--hx', `${(cx * 3).toFixed(2)}px`);
+    const [rx, ry] = opts.range || [4.2, 4];
+    svg.style.setProperty('--lx', `${(cx * rx).toFixed(2)}px`);
+    svg.style.setProperty('--ly', `${(cy * ry).toFixed(2)}px`);
   }
   function talk(on) { svg.classList.toggle('is-talking', !!on); }
   function react(m = 'happy', ms = 1400) {
@@ -160,4 +164,90 @@ KIS.createFace = function (host, opts = {}) {
       window.removeEventListener('pointerdown', onPointer);
     },
   };
+};
+
+/* 로봇 머리 화면 전체를 채우는 얼굴
+ * 화면 자체가 공작새의 얼굴이 됩니다: 가장자리까지 파란 깃털, 큰 눈과 흰 무늬, 가운데 부리.
+ * 화면 비율(가로·세로)에 맞춰 얼굴이 꽉 차도록 자동으로 맞춥니다.
+ */
+KIS.createScreenFace = function (host, opts = {}) {
+  const u = Math.random().toString(36).slice(2, 8);
+  const id = (n) => `pks-${n}-${u}`;
+  const eye = (cx, mirror) => `
+    <g class="pk-eye" transform="translate(${cx} 112)">
+      <g transform="scale(${mirror ? -1 : 1} 1)" class="pk-marks">
+        <path d="M-60 -9.6C-48 -64.8 31.2 -79.2 67.2 -31.2C31.2 -52.8 -26.4 -48 -60 -9.6Z" fill="#F6F9F3"/>
+        <path d="M-50.4 28.8C-31.2 69.6 31.2 72 57.6 33.6C26.4 50.4 -19.2 50.4 -50.4 28.8Z" fill="#F6F9F3"/>
+      </g>
+      <g class="pk-eyeball">
+        <ellipse rx="36" ry="38" fill="#08152F"/>
+        <g class="pk-iris">
+          <circle r="28.5" fill="url(#${id('iris')})"/>
+          <circle r="14.5" fill="#060606"/>
+          <circle cx="10" cy="-11.5" r="8" fill="#fff"/>
+          <circle cx="-9.5" cy="10" r="3.4" fill="#fff" opacity=".75"/>
+        </g>
+        <ellipse class="pk-rim" rx="36" ry="38" fill="none" stroke="#08152F" stroke-width="5"/>
+      </g>
+      <path class="pk-happy" d="M-29 9Q0 -24 29 9" fill="none" stroke="#08152F" stroke-width="10" stroke-linecap="round"/>
+    </g>`;
+
+  host.innerHTML = `
+  <svg class="pk pk--screen" preserveAspectRatio="xMidYMid meet" role="img" aria-label="안내 로봇 피콕의 얼굴" data-mood="idle">
+    <defs>
+      <radialGradient id="${id('head')}" gradientUnits="userSpaceOnUse" cx="200" cy="135" r="330">
+        <stop offset="0" stop-color="#2E8CF5"/><stop offset=".45" stop-color="#1F63DA"/><stop offset=".8" stop-color="#1743AD"/><stop offset="1" stop-color="#0F2E86"/>
+      </radialGradient>
+      <radialGradient id="${id('crown')}" gradientUnits="userSpaceOnUse" cx="200" cy="-30" r="230">
+        <stop offset="0" stop-color="#2AD3C0" stop-opacity=".9"/><stop offset=".6" stop-color="#1FA7B8" stop-opacity=".35"/><stop offset="1" stop-color="#1FA7B8" stop-opacity="0"/>
+      </radialGradient>
+      <radialGradient id="${id('cheek')}" cx="50%" cy="50%" r="50%">
+        <stop offset="0" stop-color="#2FD38C" stop-opacity=".85"/><stop offset=".6" stop-color="#1FB59A" stop-opacity=".4"/><stop offset="1" stop-color="#1FB59A" stop-opacity="0"/>
+      </radialGradient>
+      <radialGradient id="${id('iris')}" cx="45%" cy="40%" r="60%">
+        <stop offset="0" stop-color="#D38D50"/><stop offset=".7" stop-color="#8E4620"/><stop offset="1" stop-color="#5A280F"/>
+      </radialGradient>
+      <linearGradient id="${id('beak')}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#FFFBF0"/><stop offset="1" stop-color="#D8CBAA"/>
+      </linearGradient>
+      <pattern id="${id('scale')}" width="26" height="18" patternUnits="userSpaceOnUse">
+        <path d="M0 18Q13 2 26 18" fill="none" stroke="#A8F1FF" stroke-opacity=".07" stroke-width="1.3"/>
+      </pattern>
+    </defs>
+    <rect x="-3000" y="-3000" width="6400" height="6400" fill="url(#${id('head')})"/>
+    <rect x="-3000" y="-3000" width="6400" height="6400" fill="url(#${id('scale')})"/>
+    <ellipse cx="200" cy="-30" rx="330" ry="150" fill="url(#${id('crown')})"/>
+    <g class="pk-tilt"><g class="pk-bob"><g class="pk-features">
+      <ellipse cx="122" cy="118" rx="80" ry="66" fill="url(#${id('cheek')})"/>
+      <ellipse cx="278" cy="118" rx="80" ry="66" fill="url(#${id('cheek')})"/>
+      <ellipse class="pk-blush" cx="86" cy="178" rx="20" ry="10" fill="#FF6F9E"/>
+      <ellipse class="pk-blush" cx="314" cy="178" rx="20" ry="10" fill="#FF6F9E"/>
+      ${eye(122, false)}
+      ${eye(278, true)}
+      <g transform="translate(200 131) scale(2.4)"><g class="pk-beak">
+        <ellipse class="pk-mouth" cx="0" cy="24" rx="4.2" ry="6" fill="#5B2230"/>
+        <path class="pk-beak-low" d="M-8 12Q-2 28 0 36Q2 28 8 12Q0 17 -8 12Z" fill="#C9B994"/>
+        <path class="pk-beak-up" d="M-14 -1Q0 -11 14 -1Q12 17 0 32Q-12 17 -14 -1Z" fill="url(#${id('beak')})"/>
+        <path d="M0 -6Q1.6 10 0 26" stroke="#fff" stroke-opacity=".55" stroke-width="2" fill="none" stroke-linecap="round"/>
+        <ellipse cx="-5.4" cy="3" rx="1.6" ry="2.4" fill="#8A7C5E"/><ellipse cx="5.4" cy="3" rx="1.6" ry="2.4" fill="#8A7C5E"/>
+      </g></g>
+    </g></g></g>
+  </svg>`;
+
+  const svg = host.querySelector('svg');
+  // 화면 비율에 맞춰 얼굴(눈·무늬·부리)이 꽉 차게
+  const CW = 330, CH = 248, CX = 200, CY = 137; // 아래쪽은 자막 자리로 조금 비워 둠
+  function fit() {
+    const w = host.clientWidth || window.innerWidth, h = host.clientHeight || window.innerHeight;
+    const a = w / h;
+    let vw, vh;
+    if (a >= CW / CH) { vh = CH; vw = CH * a; } else { vw = CW; vh = CW / a; }
+    svg.setAttribute('viewBox', `${(CX - vw / 2).toFixed(2)} ${(CY - vh / 2).toFixed(2)} ${vw.toFixed(2)} ${vh.toFixed(2)}`);
+  }
+  fit();
+  window.addEventListener('resize', fit);
+  const ctl = KIS.faceBehavior(svg, Object.assign({ range: [10, 9] }, opts));
+  const destroy = ctl.destroy;
+  ctl.destroy = () => { window.removeEventListener('resize', fit); destroy(); };
+  return ctl;
 };

@@ -63,7 +63,7 @@ h1, h2, h3, p { margin: 0; }
 .pk.is-blink .pk-lid { transform: translateY(34px); }
 .pk[data-mood="happy"] .pk-eyeball, .pk[data-mood="happy"] .pk-rim { opacity: 0; }
 .pk[data-mood="happy"] .pk-happy { opacity: 1; }
-.pk[data-mood="happy"] .pk-blush { opacity: .5; }
+.pk[data-mood="happy"] .pk-blush { opacity: .85; }
 .pk[data-mood="happy"] .pk-crest { animation: pk-fan .8s var(--ease); }
 .pk[data-mood="listen"] .pk-tilt { transform: rotate(-7deg); }
 .pk[data-mood="listen"] .pk-eyeball { transform: scale(1.1); }
@@ -86,49 +86,33 @@ h1, h2, h3, p { margin: 0; }
 @keyframes pk-talk-up { from { transform: translateY(0); } to { transform: translateY(-1.5px); } }
 @keyframes pk-bounce { 0% { transform: scale(1); } 35% { transform: scale(1.06) translateY(-2%); } 65% { transform: scale(.98); } 100% { transform: scale(1); } }
 
-/* ───────── 1) 얼굴 화면 ───────── */
-#face-screen {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  justify-items: center;
-  color: #fff;
-  background: radial-gradient(ellipse 80% 70% at 50% 38%, #0F4E60 0%, #082B37 48%, #03121A 100%);
-  cursor: pointer;
-  overflow: hidden;
+/* ───────── 1) 로봇 얼굴 화면 (화면 전체가 얼굴) ───────── */
+#face-screen { background: #1A4FC0; cursor: pointer; overflow: hidden; }
+.face-full { position: absolute; inset: 0; }
+.face-full .pk { width: 100%; height: 100%; }
+.face-caption {
+  position: absolute; left: 50%; bottom: 5.5vh; transform: translate(-50%, 12px);
+  max-width: 88vw; padding: .75rem 1.6rem; border-radius: 999px;
+  background: rgba(6, 20, 64, .38); color: #fff; font-size: 1.9rem; font-weight: 800; text-align: center;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, .25); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  opacity: 0; transition: opacity .45s var(--ease), transform .45s var(--ease); pointer-events: none;
 }
-.face-bg { position: absolute; inset: 0; pointer-events: none; }
-.bokeh { position: absolute; border-radius: 50%; filter: blur(42px); opacity: .32; animation: drift 18s ease-in-out infinite alternate; }
-.b1 { width: 34vmin; height: 34vmin; left: -6vmin; top: 8vh; background: #8DB43A; }
-.b2 { width: 26vmin; height: 26vmin; right: 4vmin; top: 4vh; background: #C9B046; animation-delay: -4s; }
-.b3 { width: 40vmin; height: 40vmin; right: -10vmin; bottom: -8vh; background: #2F9E6A; animation-delay: -9s; }
-.b4 { width: 22vmin; height: 22vmin; left: 18vw; bottom: 6vh; background: #B7A23C; opacity: .2; animation-delay: -13s; }
-.b5 { width: 30vmin; height: 30vmin; left: 42vw; top: -14vmin; background: #2C8CD6; opacity: .22; }
-.ocellus {
-  position: absolute; width: 20vmin; height: 26vmin; border-radius: 50%; opacity: .16;
-  background: radial-gradient(ellipse at 50% 55%, #1B2A8C 0 16%, #1E8FD8 17% 29%, #20B39B 30% 45%, #C9A43E 46% 53%, rgba(201, 164, 62, 0) 54%);
-}
-.o1 { left: 4vw; bottom: 10vh; transform: rotate(-24deg); }
-.o2 { right: 5vw; top: 16vh; transform: rotate(18deg); width: 16vmin; height: 21vmin; }
-.o3 { left: 10vw; top: 6vh; transform: rotate(12deg); width: 12vmin; height: 16vmin; opacity: .1; }
-.o4 { right: 12vw; bottom: 6vh; transform: rotate(-12deg); width: 13vmin; height: 17vmin; opacity: .12; }
-@keyframes drift { from { transform: translate(0, 0) scale(1); } to { transform: translate(4vmin, -3vmin) scale(1.12); } }
+.face-caption.is-on { opacity: 1; transform: translate(-50%, 0); }
 
-.face-top { position: relative; width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 3vh 4vw 0; }
-.face-name { font-weight: 800; letter-spacing: .08em; font-size: 1.05rem; padding: .45rem 1rem; border-radius: 999px; background: rgba(255, 255, 255, .08); border: 1px solid rgba(255, 255, 255, .14); }
-.face-clock { font-weight: 600; opacity: .75; font-size: 1.05rem; }
-.face-wrap { position: relative; height: min(64vh, 108vw); aspect-ratio: 240 / 282; align-self: center; }
-.face-bottom { position: relative; text-align: center; padding: 0 5vw 5vh; display: grid; gap: 1.1rem; justify-items: center; }
-.face-prompt {
-  display: inline-flex; align-items: center; gap: .9rem; padding: 1rem 2rem; border-radius: 999px;
-  background: rgba(255, 255, 255, .1); border: 1px solid rgba(255, 255, 255, .2);
-  font-size: 1.75rem; font-weight: 800; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-  animation: breathe 2.6s ease-in-out infinite;
-}
-.tap-dot { width: 1rem; height: 1rem; border-radius: 50%; background: #5FF0E0; animation: tap 1.6s ease-out infinite; }
-.face-hint { font-size: 1.15rem; opacity: .78; transition: opacity .4s, transform .4s; min-height: 1.5em; }
-.face-hint.is-out { opacity: 0; transform: translateY(6px); }
-@keyframes breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.035); } }
-@keyframes tap { 0% { box-shadow: 0 0 0 0 rgba(95, 240, 224, .7); } 100% { box-shadow: 0 0 0 1.1rem rgba(95, 240, 224, 0); } }
+/* 화면 얼굴 전용 동작: 눈꺼풀 대신 눈을 위아래로 감음 */
+.pk--screen .pk-tilt { transform-origin: 200px 140px; }
+.pk--screen .pk-bob { transform-origin: 200px 125px; }
+.pk--screen .pk-features { transform-box: view-box; transform-origin: 200px 125px; }
+.pk--screen .pk-eyeball { transition: transform .08s ease-in, opacity .15s; }
+.pk--screen.is-blink .pk-eyeball { transform: scaleY(.06); }
+.pk--screen[data-mood="sleep"] .pk-eyeball { transform: scaleY(.06); }
+.pk--screen[data-mood="sad"] .pk-eyeball { transform: scaleY(.6); }
+.pk--screen[data-mood="listen"] .pk-tilt { transform: rotate(-4deg); }
+.pk--screen[data-mood="think"] .pk-tilt { transform: rotate(4deg); }
+.pk--screen[data-mood="think"] .pk-iris { transform: translate(9px, -10px); }
+.pk--screen[data-mood="sad"] .pk-tilt { transform: translateY(6px); }
+.pk--screen.is-bounce { animation: none; }
+.pk--screen.is-bounce .pk-features { animation: pk-bounce .7s var(--ease); }
 
 /* ───────── 2) 안내 화면 ───────── */
 #app-screen { display: grid; grid-template-rows: auto minmax(0, 1fr); background: var(--bg); }

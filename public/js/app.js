@@ -28,7 +28,7 @@
   }
 
   /* ── 얼굴 ── */
-  const bigFace = KIS.createFace($('#big-face'), { follow: true });
+  const bigFace = KIS.createScreenFace($('#big-face'), { follow: true });
   const miniFace = KIS.createFace($('#mini-face'), { mini: true });
   const voiceFace = KIS.createFace($('#voice-face'), { mini: true });
   const faces = [bigFace, miniFace, voiceFace];
@@ -471,26 +471,46 @@
     b.setAttribute('aria-pressed', String(state.voice));
   }
   renderSoundBtn();
-  $('#mini-face').addEventListener('click', () => { miniFace.react('happy'); Speech.say(`저는 안내 로봇 ${CFG.robotName}예요. 무엇이든 물어보세요!`); });
+  $('#mini-face').addEventListener('click', () => { miniFace.react('happy'); Speech.say(`저는 ${iAm}. 무엇이든 물어보세요!`); });
 
   /* ── 얼굴 화면 ↔ 메뉴 ── */
   const faceScreen = $('#face-screen'), appScreen = $('#app-screen');
+  const iAm = `안내 로봇 ${RT.josa(CFG.robotName, '이에요/예요')}`;
   let waking = false;
+
+  // 얼굴이 말하는 자막 (화면 아래쪽에 잠깐 나타났다 사라짐)
+  let capT, capTalkT;
+  function caption(text, ms = 4200) {
+    const c = $('#face-caption');
+    clearTimeout(capT); clearTimeout(capTalkT);
+    c.textContent = text;
+    c.classList.add('is-on');
+    bigFace.talk(true);
+    capTalkT = setTimeout(() => bigFace.talk(false), Math.min(2600, 500 + text.length * 70));
+    capT = setTimeout(() => c.classList.remove('is-on'), ms);
+  }
+  function clearCaption() {
+    clearTimeout(capT); clearTimeout(capTalkT);
+    $('#face-caption').classList.remove('is-on');
+    bigFace.talk(false);
+  }
+
   function wake() {
     if (waking) return;
     waking = true;
-    bigFace.react('happy', 1200);
-    const greet = `안녕하세요! 저는 안내 로봇 ${CFG.robotName}예요. 어디로 안내해 드릴까요?`;
-    $('#face-prompt-text').textContent = '안녕하세요!';
-    Speech.say(greet);
+    clearTimeout(idleCapT);
+    bigFace.react('happy', 1400);
+    caption('안녕하세요! 어디로 안내해 드릴까요?', 2000);
+    Speech.say(`안녕하세요! 저는 ${iAm}. 어디로 안내해 드릴까요?`);
     setTimeout(() => {
       faceScreen.classList.remove('is-active');
       appScreen.classList.add('is-active');
+      clearCaption();
       $('#bubble').textContent = '어디로 안내해 드릴까요?';
       goHome();
       waking = false;
       resetIdle();
-    }, 900);
+    }, 1100);
   }
   function sleep() {
     Speech.stop();
@@ -502,8 +522,9 @@
     state.stack = [];
     appScreen.classList.remove('is-active');
     faceScreen.classList.add('is-active');
-    $('#face-prompt-text').textContent = '화면을 터치해 주세요';
     bigFace.setMood('idle');
+    clearCaption();
+    scheduleIdleCaption(2500);
   }
   faceScreen.addEventListener('click', wake);
   faceScreen.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') wake(); });
@@ -516,21 +537,26 @@
   }
   ['pointerdown', 'keydown', 'wheel'].forEach((ev) => document.addEventListener(ev, resetIdle, { passive: true }));
 
-  // 얼굴 화면 안내 문구 순환
-  const hints = [
-    '보건실 · 교무실 · 5-1반 … 학교 어디든 안내해 드려요',
-    SR ? '“도서실 어디예요?” 하고 말로 물어봐도 돼요' : '장소 이름을 검색해서 찾을 수도 있어요',
-    '가장 가까운 화장실도 바로 알려 드려요',
-    '층별 지도로 학교를 한눈에 볼 수 있어요',
+  // 기다리는 동안 가끔 말을 걸기 (자막만, 소리 없음)
+  const idleLines = [
+    `안녕하세요! 저는 ${iAm}`,
+    '저를 터치하면 길을 안내해 드려요',
+    '보건실, 교무실, 5-1반… 어디든 물어보세요',
+    SR ? '“도서실 어디예요?” 하고 말로 물어봐도 돼요' : '가장 가까운 화장실도 알려 드려요',
   ];
-  let hintI = 0;
-  setInterval(() => {
-    if (!faceScreen.classList.contains('is-active')) return;
-    const h = $('#face-hint');
-    h.classList.add('is-out');
-    setTimeout(() => { hintI = (hintI + 1) % hints.length; h.textContent = hints[hintI]; h.classList.remove('is-out'); }, 400);
-  }, 5000);
-  $('#face-hint').textContent = hints[0];
+  let idleCapT, idleI = 0;
+  function scheduleIdleCaption(ms) {
+    clearTimeout(idleCapT);
+    if (CFG.faceCaptions === false) return;
+    idleCapT = setTimeout(() => {
+      if (faceScreen.classList.contains('is-active') && !waking) {
+        caption(idleLines[idleI % idleLines.length]);
+        idleI++;
+      }
+      scheduleIdleCaption(11000 + Math.random() * 6000);
+    }, ms);
+  }
+  scheduleIdleCaption(2500);
 
   /* ── 시계 ── */
   function tick() {
@@ -540,7 +566,6 @@
     const t = `${hh < 12 ? '오전' : '오후'} ${hh % 12 || 12}:${mm}`;
     const ds = `${d.getMonth() + 1}월 ${d.getDate()}일 (${days[d.getDay()]})`;
     $('#clock').innerHTML = `<b>${t}</b><span>${ds}</span>`;
-    $('#face-clock').textContent = `${ds} ${t}`;
   }
   tick();
   setInterval(tick, 10000);
@@ -755,7 +780,6 @@
 
   /* ── 시작 ── */
   document.title = `${CFG.title} ${CFG.robotName}`;
-  $('#robot-name').textContent = `${CFG.robotNameEn} · ${CFG.robotName}`;
   if (/[?&]start=app/.test(location.search)) { faceScreen.classList.remove('is-active'); appScreen.classList.add('is-active'); goHome(); }
   const deep = new URLSearchParams(location.search).get('to');
   if (deep && D.roomById(deep)) { faceScreen.classList.remove('is-active'); appScreen.classList.add('is-active'); goHome(); startRoute(deep); }
