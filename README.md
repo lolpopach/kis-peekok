@@ -56,11 +56,11 @@ cd public && python3 -m http.server 8080
 주소: **https://kis-peekok.pages.dev**
 
 Cloudflare Pages 프로젝트 `kis-peekok` 이 이 GitHub 저장소에 연결되어 있어서, 푸시하면 자동으로 배포됩니다.
-- 운영 브랜치: `claude/relaxed-rubin-1vbjfb` → `kis-peekok.pages.dev`
+- 운영 브랜치: `main` → `kis-peekok.pages.dev`
 - 다른 브랜치: 브랜치별 미리보기 주소가 따로 만들어집니다.
 - Build command: *(없음)* · Build output directory: `public`
 
-나중에 `main` 브랜치를 운영 브랜치로 쓰려면 Cloudflare 대시보드 → Workers & Pages → kis-peekok → Settings → Builds 에서 Production branch 를 바꿉니다.
+운영 브랜치는 Cloudflare 대시보드 → Workers & Pages → kis-peekok → Settings → Builds 의 Production branch 에서 바꿀 수 있습니다.
 
 **명령어로 직접 배포할 때** (본인 컴퓨터에서)
 
