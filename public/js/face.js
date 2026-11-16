@@ -236,7 +236,8 @@ KIS.createScreenFace = function (host, opts = {}) {
 
   const svg = host.querySelector('svg');
   // 화면 비율에 맞춰 얼굴(눈·무늬·부리)이 꽉 차게
-  const CW = 330, CH = 248, CX = 200, CY = 137; // 아래쪽은 자막 자리로 조금 비워 둠
+  // 얼굴이 꼭 보여야 하는 영역(눈 무늬 양끝 x 62~338). 세로 태블릿에서도 얼굴이 크게 보이도록 좌우 여백을 최소로 둔다.
+  const CW = 292, CH = 248, CX = 200, CY = 137; // 아래쪽은 자막 자리로 조금 비워 둠
   function fit() {
     const w = host.clientWidth || window.innerWidth, h = host.clientHeight || window.innerHeight;
     const a = w / h;

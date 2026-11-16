@@ -146,11 +146,14 @@
             <span>${q.sub || (q.act === 'room' ? `${D.roomById(q.arg).floor}층` : `${D.rooms().filter(LISTS[q.arg].filter).length}곳`)}</span></button>`).join('')}
         </div>
         <div class="cat-row">
-          <button class="cat-card cat-main" data-action="classes">${I('classroom')}<b>교실 찾기</b><span>학년 · 반으로 찾기</span></button>
-          <button class="cat-card" data-action="list" data-id="office">${I('office')}<b>교무·행정실</b><span>교장실 · 회의실 · 방송실</span></button>
-          <button class="cat-card" data-action="list" data-id="special">${I('flask')}<b>특별실</b><span>과학 · 음악 · 컴퓨터</span></button>
-          <button class="cat-card" data-action="list" data-id="facility">${I('star')}<b>편의·공용시설</b><span>카페 · 시청각실 · 콘서트홀</span></button>
-          <button class="cat-card" data-action="map">${I('map')}<b>층별 안내도</b><span>1층 ~ 5층 지도</span></button>
+          ${[
+            ['cat-main', 'classes', '', 'classroom', '교실 찾기', '학년 · 반으로 찾기'],
+            ['', 'list', 'office', 'office', '교무·행정실', '교장실 · 회의실 · 방송실'],
+            ['', 'list', 'special', 'flask', '특별실', '과학 · 음악 · 컴퓨터'],
+            ['', 'list', 'facility', 'star', '편의·공용시설', '카페 · 시청각실 · 콘서트홀'],
+            ['', 'map', '', 'map', '층별 안내도', '1층 ~ 5층 지도'],
+          ].map(([cls, act, id, ico, t, sub]) => `<button class="cat-card ${cls}" data-action="${act}"${id ? ` data-id="${id}"` : ''}>
+            ${I(ico)}<span class="cat-text"><b>${t}</b><span>${sub}</span></span></button>`).join('')}
         </div>
       </section>`;
     },
@@ -221,13 +224,21 @@
 
     map(p) {
       const f = p.floor || state.location.floor;
+      const fl = D.floorById(f);
+      const order = { class: 0, special: 1, office: 2, facility: 3 };
+      const places = fl.rooms.filter((r) => r.searchable && r.cat !== 'restroom' && r.cat !== 'elev')
+        .sort((a, b) => (order[a.group] - order[b.group]) || (a.grade || 0) - (b.grade || 0) || (a.klass || 0) - (b.klass || 0) || a.name.localeCompare(b.name));
       return `<section class="view view-map">
         ${viewHead('층별 안내도', '장소를 누르면 길을 안내해요', floorTabs(f, 'mapfloor'))}
-        <div class="card map-card">
+        ${legend(false, 'map-legend--strip')}
+        <div class="card map-card" style="--map-ar: ${fl.viewBox[2]} / ${fl.viewBox[3]}">
           <div class="map-host" id="browse-map"></div>
           ${zoomButtons()}
-          ${legend()}
           <div class="room-sheet" id="room-sheet" hidden></div>
+        </div>
+        <div class="floor-places">
+          <h3>${fl.name}의 장소 <span>${places.length}곳 · 누르면 길을 안내해요</span></h3>
+          <div class="chip-grid">${places.map((r) => `<button class="chip cat-${r.cat}" data-action="room" data-id="${r.id}">${esc(r.group === 'class' && r.grade > 0 ? `${r.name}반` : r.title || r.name)}</button>`).join('')}</div>
         </div>
       </section>`;
     },
@@ -256,6 +267,7 @@
           ${segs.length > 1 && cur > 0 ? `<button class="prev-floor" data-action="seg" data-id="${cur - 1}">${I('back')} ${segs[cur - 1].floor}층</button>` : ''}
         </div>
         <aside class="card route-panel">
+          <div class="dest-row">
           <div class="dest">
             <span class="dest-badge cat-${room.cat}"><b>${room.floor}</b>층</span>
             <div class="dest-text"><h2>${esc(title)}</h2><p>${p.kind ? `${room.floor}층 · ${esc(RT.landmark(room.floor, RT.roomCenter(room), 30, room) ? `${nameOf(RT.landmark(room.floor, RT.roomCenter(room), 30, room))} 근처` : '')}` : `${esc(catLabel(room))} · ${room.floor}층`}</p></div>
@@ -264,6 +276,7 @@
             <div><b>${RT.fmtMeters(r.meters)}</b><span>거리</span></div>
             <div><b>${mins}</b><span>걸어서</span></div>
             <div><b>${multi ? `${r.floorsMoved}개 층` : '같은 층'}</b><span>${multi ? (r.usesElevator ? '엘리베이터' : '계단') : '층 이동 없음'}</span></div>
+          </div>
           </div>
           ${multi ? `<div class="mode-toggle" role="group" aria-label="이동 방법">
             <button class="${state.mode === 'stairs' ? 'is-on' : ''}" data-action="mode" data-id="stairs">${I('stairs')}계단으로</button>
@@ -295,9 +308,9 @@
   function zoomButtons() {
     return `<div class="map-zoom"><button data-action="zoom-in" aria-label="확대">${I('plus')}</button><button data-action="zoom-out" aria-label="축소">${I('minus')}</button><button data-action="zoom-fit" aria-label="처음 크기">${I('target')}</button></div>`;
   }
-  function legend(route) {
+  function legend(route, cls = '') {
     const cats = `<span><i class="sw sw-elem"></i>유/초등</span><span><i class="sw sw-middle"></i>중등</span><span><i class="sw sw-common"></i>공용</span><span><i class="sw sw-admin"></i>관리·부대</span>`;
-    return `<div class="map-legend">${route ? '<span><i class="sw sw-you"></i>현재 위치</span><span><i class="sw sw-route"></i>가는 길</span>' : '<span><i class="sw sw-you"></i>현재 위치</span>'}${cats}</div>`;
+    return `<div class="map-legend ${cls}">${route ? '<span><i class="sw sw-you"></i>현재 위치</span><span><i class="sw sw-route"></i>가는 길</span>' : '<span><i class="sw sw-you"></i>현재 위치</span>'}${cats}</div>`;
   }
   function segIndexForStep(s) {
     const segs = state.route.segments;
@@ -777,6 +790,25 @@
       bubble(`위치를 ${state.location.label}(으)로 저장했어요.`, false);
     }
   });
+
+  /* ── 태블릿(로봇 얼굴)용 처리 ── */
+  // 화면이 꺼지지 않게 (Screen Wake Lock). 탭이 다시 보이면 다시 요청한다.
+  let wakeLock = null;
+  async function keepAwake() {
+    if (!('wakeLock' in navigator) || document.visibilityState !== 'visible' || wakeLock) return;
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+    } catch (e) { /* 지원하지 않거나 거부됨: 태블릿 설정에서 '화면 꺼짐 안 함'으로 */ }
+  }
+  keepAwake();
+  document.addEventListener('visibilitychange', keepAwake);
+  document.addEventListener('pointerdown', keepAwake, { passive: true }); // 일부 브라우저는 터치 후에만 허용
+  // 길게 누르기 메뉴, 두 손가락 페이지 확대(iOS), 드래그 방지 — 지도 확대는 지도 안에서만
+  document.addEventListener('contextmenu', (e) => e.preventDefault());
+  ['gesturestart', 'gesturechange'].forEach((ev) => document.addEventListener(ev, (e) => e.preventDefault()));
+  document.addEventListener('dragstart', (e) => e.preventDefault());
+  document.addEventListener('touchstart', () => {}, { passive: true }); // iOS 에서 :active 눌림 효과가 보이게
 
   /* ── 시작 ── */
   document.title = `${CFG.title} ${CFG.robotName}`;
