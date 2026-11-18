@@ -11,6 +11,12 @@
   터치 전용이라 마우스·키보드를 가정하지 않습니다. 변경할 때마다 가로 태블릿 크기로 확인합니다:
   1024×768 · 1180×820 · 1280×800 · 1366×1024.
   터치 대상은 최소 48px, 화면 꺼짐 방지(Wake Lock), 전체 화면 실행(manifest), 당겨서 새로고침·확대 방지를 유지합니다.
+- **지도는 고정**입니다(사용자 요청). 끌기·두 손가락 확대·확대 버튼을 넣지 않습니다. 태블릿 길 안내 지도는 층 전체를 보여 주고,
+  지도에서는 누르기(방 선택)만 받습니다.
+- **QR 코드로 휴대폰에서 보기**: 길 안내 화면의 "휴대폰으로 보기" → QR 코드 → `m.html?to=<방id>&at=<층>,<x>,<y>[&mode=elevator][&k=restroom|elevator]`.
+  휴대폰 페이지(`m.html`, `js/mobile.js`, `css/mobile.css`)는 **세로 휴대폰** 기준(390×844)으로 확인합니다.
+  QR 주소의 기준은 `js/config.js` 의 `publicUrl`. QR 라이브러리는 `js/vendor/qrcode.js`(MIT, qrcode-generator 1.4.4).
+  지도 공통 스타일은 `css/map.css` (태블릿·휴대폰이 같이 씀).
 
 ## 배포 — Cloudflare Pages (사용자가 정한 고정 절차, 매번 이대로)
 - 주소: https://kis-peekok.pages.dev

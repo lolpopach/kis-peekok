@@ -233,7 +233,6 @@
         ${legend(false, 'map-legend--strip')}
         <div class="card map-card" style="--map-ar: ${fl.viewBox[2]} / ${fl.viewBox[3]}">
           <div class="map-host" id="browse-map"></div>
-          ${zoomButtons()}
           <div class="room-sheet" id="room-sheet" hidden></div>
         </div>
         <div class="floor-places">
@@ -262,7 +261,6 @@
             ${legend(true)}
           </div>
           <div class="map-host" id="route-map"></div>
-          ${zoomButtons()}
           ${segs.length > 1 && cur < segs.length - 1 ? `<button class="next-floor" data-action="seg" data-id="${cur + 1}">${segs[cur + 1].floor}층 지도 보기 ${I('chevron')}</button>` : ''}
           ${segs.length > 1 && cur > 0 ? `<button class="prev-floor" data-action="seg" data-id="${cur - 1}">${I('back')} ${segs[cur - 1].floor}층</button>` : ''}
         </div>
@@ -289,6 +287,7 @@
               <span class="step-text">${esc(s.text)}</span>
               <span class="step-floor">${s.floor}층</span></button></li>`).join('')}
           </ol>
+          <button class="qr-btn" data-action="qr">${I('qr')}<span><b>휴대폰으로 보기</b><small>QR 코드를 찍으면 이 길 안내가 휴대폰에 떠요</small></span>${I('chevron')}</button>
           <div class="route-actions">
             <button class="btn" data-action="replay">${I('sound')}다시 듣기</button>
             <button class="btn btn-primary" data-action="back">${I('search')}다른 곳 찾기</button>
@@ -304,9 +303,6 @@
 
   function floorTabs(cur, action) {
     return `<div class="floor-tabs" role="tablist">${D.floors.map((f) => `<button role="tab" class="${f.id === cur ? 'is-on' : ''}" data-action="${action}" data-id="${f.id}">${f.name}${f.id === state.location.floor ? '<i class="here-dot" title="현재 층"></i>' : ''}</button>`).join('')}</div>`;
-  }
-  function zoomButtons() {
-    return `<div class="map-zoom"><button data-action="zoom-in" aria-label="확대">${I('plus')}</button><button data-action="zoom-out" aria-label="축소">${I('minus')}</button><button data-action="zoom-fit" aria-label="처음 크기">${I('target')}</button></div>`;
   }
   function legend(route, cls = '') {
     const cats = `<span><i class="sw sw-elem"></i>유/초등</span><span><i class="sw sw-middle"></i>중등</span><span><i class="sw sw-common"></i>공용</span><span><i class="sw sw-admin"></i>관리·부대</span>`;
@@ -389,10 +385,8 @@
     const r = state.route;
     const seg = r.segments[i];
     mapView.setFloor(seg.floor);
+    // 지도는 고정: 층 전체가 한눈에 보이게 (확대·이동 없음)
     mapView.showRoute(seg, { isFirst: i === 0, prevFloor: i > 0 ? r.segments[i - 1].floor : null, room: r.room });
-    const pts = seg.draw.slice();
-    if (r.room.floor === seg.floor) r.room.rects.forEach((rc) => pts.push([rc[0], rc[1]], [rc[2], rc[3]]));
-    requestAnimationFrame(() => mapView && mapView.fit(pts, 34, 250));
     // 지금 보고 있는 층의 안내 단계가 보이도록
     const cur = document.querySelector('.step.is-cur');
     if (cur) cur.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -461,12 +455,7 @@
         Speech.say(s.text);
         break;
       }
-      case 'zoom-in': mapView && mapView.zoomBy(1.4); break;
-      case 'zoom-out': mapView && mapView.zoomBy(1 / 1.4); break;
-      case 'zoom-fit':
-        if (!mapView) break;
-        if (state.current.view === 'route') showSeg(state.seg); else mapView.reset();
-        break;
+      case 'qr': QR.open(); break;
       case 'sheet-close': $('#room-sheet').hidden = true; mapView.clearOverlay(); if (mapView.floorId === state.location.floor) mapView.you(state.location.x, state.location.y, '현재 위치'); break;
       default: break;
     }
@@ -530,6 +519,7 @@
     Keyboard.close();
     Voice.stop();
     closeAdmin();
+    QR.close();
     state.mode = 'stairs';
     state.route = null;
     state.stack = [];
@@ -725,6 +715,54 @@
     return { start, stop };
   })();
 
+  /* ── QR 코드: 길 안내를 휴대폰으로 가져가기 ──
+   * 휴대폰용 페이지(m.html) 주소에 목적지·로봇 위치·이동 방법을 담는다.
+   * 휴대폰에서도 같은 데이터로 같은 경로를 계산하므로 서버가 필요 없다.
+   */
+  const QR = (function () {
+    const box = $('#qr');
+    let closeT;
+    function routeUrl() {
+      const p = state.current.params, r = state.route, L = state.location;
+      const base = new URL('m.html', CFG.publicUrl || location.href).toString();
+      let q = `to=${encodeURIComponent(r.room.id)}&at=${L.floor},${L.x},${L.y}`;
+      if (state.mode !== 'stairs') q += `&mode=${state.mode}`;
+      if (p.kind) q += `&k=${p.kind}`;
+      return `${base}?${q}`;
+    }
+    function svgFor(text) {
+      const qr = qrcode(0, 'M');
+      qr.addData(text);
+      qr.make();
+      const n = qr.getModuleCount(), m = 4;
+      let d = '';
+      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (qr.isDark(y, x)) d += `M${x + m} ${y + m}h1v1h-1z`;
+      return `<svg viewBox="0 0 ${n + m * 2} ${n + m * 2}" shape-rendering="crispEdges" role="img" aria-label="길 안내 QR 코드">
+        <rect width="100%" height="100%" fill="#fff"/><path d="${d}" fill="#0F2138"/></svg>`;
+    }
+    function open() {
+      if (!state.route) return;
+      const p = state.current.params, room = state.route.room;
+      const title = p.kind === 'restroom' ? '가장 가까운 화장실' : p.kind === 'elevator' ? '가장 가까운 엘리베이터' : (room.title || room.name);
+      const url = routeUrl();
+      $('#qr-code').innerHTML = svgFor(url);
+      $('#qr-dest').innerHTML = `<span class="dest-badge cat-${room.cat}"><b>${room.floor}</b>층</span><b>${esc(title)}</b>`;
+      $('#qr-host').textContent = new URL(url).host;
+      box.hidden = false;
+      requestAnimationFrame(() => box.classList.add('is-open'));
+      bubble('휴대폰 카메라로 QR 코드를 찍어 보세요!');
+      clearTimeout(closeT);
+      closeT = setTimeout(close, 90000);
+    }
+    function close() {
+      clearTimeout(closeT);
+      box.classList.remove('is-open');
+      box.hidden = true;
+    }
+    box.addEventListener('click', (e) => { if (e.target === box || e.target.closest('[data-qr-close]')) close(); });
+    return { open, close, url: () => routeUrl() };
+  })();
+
   /* ── 관리자 설정 (시계를 3초간 길게 누르기) ── */
   let holdT;
   const clock = $('#clock');
@@ -753,7 +791,7 @@
           <button class="btn btn-primary" data-adm="save">저장</button>
         </div>
       </div></div>`;
-    adminMap = new KIS.MapView($('#adm-map'), { onMapTap: pickLoc, onRoomTap: () => {} });
+    adminMap = new KIS.MapView($('#adm-map'), { onMapTap: pickLoc });
     showAdminFloor(pending.floor);
   }
   function showAdminFloor(f) {

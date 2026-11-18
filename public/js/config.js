@@ -9,6 +9,9 @@ KIS.CONFIG = {
   robotNameEn: 'PEEKOK',
   title: '학교 안내 로봇',
 
+  // QR 코드에 담는 공개 주소. 휴대폰은 이 주소의 m.html 에서 길 안내를 엽니다.
+  publicUrl: 'https://kis-peekok.pages.dev/',
+
   // 로봇이 서 있는 위치 (도면 좌표, js/data.js 와 같은 좌표계)
   robotLocation: { floor: 1, x: 325, y: 391, label: '1층 현관 로비' },
 

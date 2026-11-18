@@ -1,0 +1,40 @@
+/* 층별 지도 (태블릿 index.html · 휴대폰 m.html 공용)
+ * 페이지 쪽에서 --accent(경로), --peacock(현재 위치), --ink(글자) 색을 정의합니다.
+ */
+/* 지도는 고정(끌기·확대 없음): 누르기만 받고, 휴대폰에서는 지도 위에서도 페이지가 스크롤되게 */
+.map-svg { width: 100%; height: 100%; display: block; touch-action: manipulation; font-family: inherit; background: #FBFCFE; }
+.room-shape { fill: var(--t); stroke: var(--s); stroke-width: .6; transition: fill .3s; }
+.room-label { fill: var(--c); font-weight: 700; pointer-events: none; }
+.room.cat-elem { --c: #00664D; --t: #E3F3EC; --s: #A5D2BF; --solid: #00765A; }
+.room.cat-middle { --c: #00577F; --t: #E1EEF7; --s: #A2C6DD; --solid: #00699A; }
+.room.cat-common { --c: #71407A; --t: #F2E9F4; --s: #D3B8D8; --solid: #8F5C95; }
+.room.cat-admin { --c: #4A5B6E; --t: #EEF1F4; --s: #C6CFD9; --solid: #6F8296; }
+.room.cat-restroom { --t: #F4F5F7; --s: #D6DBE1; }
+.room.cat-elev { --t: #E2E7ED; --s: #BCC5D0; }
+.room.cat-neutral { --t: #F2F4F6; --s: #E0E4E9; }
+.room.cat-entrance .room-shape { fill: #C0344B; stroke: none; }
+.room.cat-entrance .room-label { fill: #fff; font-weight: 800; }
+.room[data-room] { cursor: pointer; }
+.room.is-target .room-shape, .room.is-picked .room-shape { fill: var(--solid, #6F8296); stroke: var(--accent); stroke-width: 1.6; }
+.room.is-target .room-label, .room.is-picked .room-label { fill: #fff; }
+.room.is-target .room-shape { animation: target-glow 1.6s ease-in-out infinite; }
+@keyframes target-glow { 50% { stroke-width: 3; } }
+.map-glyph { pointer-events: none; }
+.route-casing { fill: none; stroke: #fff; stroke-width: 7.5; stroke-linecap: round; stroke-linejoin: round; }
+.route-line { fill: none; stroke: var(--accent); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+.route-flow { fill: none; stroke: #FFE6DA; stroke-width: 1.5; stroke-dasharray: 1.4 6; stroke-linecap: round; animation: flow .8s linear infinite; }
+@keyframes flow { to { stroke-dashoffset: -7.4; } }
+.route-walker { fill: #fff; stroke: var(--accent); stroke-width: 1.8; }
+.map-you-dot { fill: var(--peacock); stroke: #fff; stroke-width: 2; }
+.map-you-pulse { fill: var(--peacock); transform-box: fill-box; transform-origin: center; animation: you-pulse 1.8s ease-out infinite; }
+@keyframes you-pulse { from { transform: scale(.4); opacity: .5; } to { transform: scale(1.5); opacity: 0; } }
+.map-pill { pointer-events: none; }
+.map-pill rect { fill: var(--ink); }
+.map-pill text { fill: #fff; font-weight: 800; }
+.pill-you rect { fill: var(--peacock); }
+.pill-go rect { fill: var(--accent); }
+.map-pin-shape { fill: var(--accent); stroke: #fff; stroke-width: 1.5; }
+.map-pin-bob { animation: pin-bob 1.2s ease-in-out infinite; }
+@keyframes pin-bob { 50% { transform: translateY(-3px); } }
+.map-flash { fill: none; stroke: var(--accent); stroke-width: 2.4; transform-box: fill-box; transform-origin: center; animation: flash 1.5s ease-out forwards; }
+@keyframes flash { from { transform: scale(.3); opacity: 1; } to { transform: scale(2.4); opacity: 0; } }

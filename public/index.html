@@ -16,6 +16,7 @@
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
   <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/map.css">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='18' r='12' fill='%231F68E0'/%3E%3Ccircle cx='11' cy='17' r='3' fill='%23fff'/%3E%3Ccircle cx='21' cy='17' r='3' fill='%23fff'/%3E%3Cpath d='M14 21h4l-2 5z' fill='%23F3EAD3'/%3E%3Ccircle cx='16' cy='4' r='3' fill='%2322C1C6'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -63,6 +64,25 @@
       </div>
     </div>
 
+    <!-- 휴대폰으로 보기 (QR 코드) -->
+    <div id="qr" class="qr-overlay" hidden>
+      <div class="qr-card" role="dialog" aria-modal="true" aria-label="휴대폰으로 길 안내 보기">
+        <div class="qr-code" id="qr-code"></div>
+        <div class="qr-text">
+          <p class="qr-kicker">휴대폰으로 길 안내 가져가기</p>
+          <h2>휴대폰 카메라로<br>QR 코드를 찍어 보세요</h2>
+          <div class="qr-dest" id="qr-dest"></div>
+          <ol class="qr-how">
+            <li>휴대폰 카메라 앱을 켜요</li>
+            <li>QR 코드를 화면에 비춰요</li>
+            <li>뜨는 링크를 누르면 지도와 길 안내가 나와요</li>
+          </ol>
+          <p class="qr-host" id="qr-host"></p>
+          <button class="btn btn-primary qr-close" data-qr-close>확인</button>
+        </div>
+      </div>
+    </div>
+
     <div id="admin" class="admin" hidden></div>
   </section>
 
@@ -74,6 +94,7 @@
   <script src="js/search.js"></script>
   <script src="js/face.js"></script>
   <script src="js/map.js"></script>
+  <script src="js/vendor/qrcode.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

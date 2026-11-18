@@ -188,7 +188,7 @@ KIS.MapView = (function () {
       am.beginElement && setTimeout(() => { try { am.beginElement(); } catch (e) { /* noop */ } }, 0);
 
       const first = pts[0], last = pts[pts.length - 1];
-      if (ctx.isFirst) this.you(first[0], first[1], '현재 위치');
+      if (ctx.isFirst) this.you(first[0], first[1], ctx.youLabel || '현재 위치');
       else this.pill(first[0], first[1] - 9, `${ctx.prevFloor}층에서 ${ctx.prevFloor < this.floorId ? '올라옴' : '내려옴'}`, 'pill-info');
       if (seg.via) {
         this.glyph(seg.via.type === 'elev' ? 'elevator' : 'stairs', seg.via.x, seg.via.y, 10, '#FF5A1F', this.overlay);
@@ -243,7 +243,10 @@ KIS.MapView = (function () {
       let w = Math.max(x1 - x0, minW), h = Math.max(y1 - y0, minW / ar);
       if (w / h < ar) w = h * ar; else h = w / ar;
       const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
-      this.setView({ x: cx - w / 2, y: cy - h / 2, w, h });
+      // 도면 바깥 빈 곳이 보이지 않게 가능한 한 도면 안쪽으로 밀어 넣는다
+      const base = this.baseBox();
+      const inside = (v, size, b0, bSize) => (size <= bSize ? Math.min(Math.max(v, b0), b0 + bSize - size) : b0 + (bSize - size) / 2);
+      this.setView({ x: inside(cx - w / 2, w, base.x, base.w), y: inside(cy - h / 2, h, base.y, base.h), w, h }, false);
     }
 
     reset() { this.setView(this.baseBox()); }
@@ -261,60 +264,13 @@ KIS.MapView = (function () {
       return [p.x, p.y];
     }
 
+    // 지도는 고정: 끌기·확대 없이 누르기만 받는다 (방 누르기 → onRoomTap, 빈 곳 누르기 → onMapTap)
     bindGestures() {
-      const s = this.svg;
-      const pts = new Map();
-      let moved = 0, pinch = null;
-      s.addEventListener('pointerdown', (e) => {
-        s.setPointerCapture(e.pointerId);
-        pts.set(e.pointerId, [e.clientX, e.clientY]);
-        if (pts.size === 1) moved = 0;
-        if (pts.size === 2) {
-          const [a, b] = [...pts.values()];
-          pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]) };
-        }
+      this.svg.addEventListener('click', (e) => {
+        const g = e.target.closest && e.target.closest('[data-room]');
+        if (g && this.opts.onRoomTap) this.opts.onRoomTap(g.getAttribute('data-room'));
+        else if (this.opts.onMapTap) this.opts.onMapTap(this.toUser(e.clientX, e.clientY));
       });
-      s.addEventListener('pointermove', (e) => {
-        if (!pts.has(e.pointerId)) return;
-        const prev = pts.get(e.pointerId);
-        const cur = [e.clientX, e.clientY];
-        pts.set(e.pointerId, cur);
-        if (pts.size === 1) {
-          const dx = cur[0] - prev[0], dy = cur[1] - prev[1];
-          moved += Math.abs(dx) + Math.abs(dy);
-          if (moved < 6) return;
-          const [ax, ay] = this.toUser(prev[0], prev[1]), [bx, by] = this.toUser(cur[0], cur[1]);
-          const v = this.view;
-          this.setView({ x: v.x - (bx - ax), y: v.y - (by - ay), w: v.w, h: v.h }, false);
-        } else if (pts.size === 2 && pinch) {
-          moved = 99;
-          const [a, b] = [...pts.values()];
-          const d = Math.hypot(a[0] - b[0], a[1] - b[1]);
-          const [cx, cy] = this.toUser((a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
-          this.zoomBy(d / pinch.d, cx, cy);
-          pinch.d = d;
-        }
-      });
-      const end = (e) => {
-        if (!pts.has(e.pointerId)) return;
-        pts.delete(e.pointerId);
-        if (pts.size < 2) pinch = null;
-        if (pts.size === 0 && moved < 8 && e.type === 'pointerup' && this.opts.onRoomTap) {
-          const hit = document.elementFromPoint(e.clientX, e.clientY);
-          const g = hit && hit.closest && hit.closest('[data-room]');
-          if (g) this.opts.onRoomTap(g.getAttribute('data-room'));
-          else if (this.opts.onMapTap) this.opts.onMapTap(this.toUser(e.clientX, e.clientY));
-        } else if (pts.size === 0 && moved < 8 && e.type === 'pointerup' && this.opts.onMapTap) {
-          this.opts.onMapTap(this.toUser(e.clientX, e.clientY));
-        }
-      };
-      s.addEventListener('pointerup', end);
-      s.addEventListener('pointercancel', end);
-      s.addEventListener('wheel', (e) => {
-        e.preventDefault();
-        const [cx, cy] = this.toUser(e.clientX, e.clientY);
-        this.zoomBy(e.deltaY < 0 ? 1.15 : 1 / 1.15, cx, cy);
-      }, { passive: false });
     }
   }
 
