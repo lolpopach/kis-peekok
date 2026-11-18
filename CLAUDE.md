@@ -1,7 +1,28 @@
 # kis-peekok 작업 지침
 
-학교 안내 로봇 **피콕**의 얼굴 화면 웹앱입니다. 빌드 과정 없는 정적 사이트이고, 사이트 파일은 모두 `public/` 에 있습니다.
+학교 안내·배달 로봇 **피콕**의 웹 시스템입니다. 화면은 빌드 과정 없는 정적 파일(`public/`),
+서버는 Cloudflare Pages Functions(`functions/api`, 공통 코드 `lib/`) + D1 데이터베이스입니다.
 사용자와는 한국어로 대화합니다.
+
+## 화면 구성 (같은 주소, 기기에 따라 다름)
+- `public/robot.html` (`/robot`): 로봇 태블릿 = 로봇 얼굴 + 길 찾기 + 배달. 설정 링크 `/robot#key=<ROBOT_KEY>` 로 한 번 열면
+  기기가 로봇으로 등록(localStorage `kis-robot-device`, `kis-robot-key`)되고, 그 뒤로는 `/` 도 로봇 화면으로 넘어간다.
+- `public/index.html` (`/`): 그 밖의 사람 = 피콕 부르기(배달 호출, 휴대폰 우선). `/?public` 은 로봇 기기에서도 부르기 화면.
+- `public/m.html` (`/m`): QR 로 여는 휴대폰 길 안내.
+
+## 배달 시스템
+- 흐름: 휴대폰 호출(waiting) → 로봇 자동 수락(coming, 화면을 아무도 안 쓸 때만) → 도착(loading) → 받는 곳·받는 사람·메모 → 출발(delivering)
+  → 도착(at_recipient) → 받았어요(delivered) → 로봇 제자리(returning → idle). 로봇 화면 쪽은 `public/js/delivery.js`.
+- 서버 API 와 로봇 몸체(라인 트레이스) 연결 규약: `docs/robot-api.md`. 노드 = `data.js` 의 nodes, 주행 계획 = `Router.robotPlan`,
+  위치 추정 = `Router.locate`(노드 통과 보고 + 등속도). 로봇은 엘리베이터만 쓴다.
+- 길 안내 방식 두 가지(`public/js/guide.js`): 길 안내 화면에서 "데려다주세요"(로봇이 문 앞까지 앞장섬, 로봇 상태 guiding → guided → returning)
+  또는 "QR로 받을게요"(휴대폰 길 안내). 데려다주기도 배달과 같은 주행 계획·위치 추정·로봇 API 를 쓴다.
+- D1: `kis-peekok` (id 는 wrangler.toml), 구조 `db/schema.sql` (서버가 처음 요청 때 `CREATE TABLE IF NOT EXISTS` 로 만들기도 함).
+  열을 추가할 때는 D1 API 로 `ALTER TABLE` 을 직접 실행한다.
+- 비밀값 `ROBOT_KEY`: Pages 프로젝트 비밀값(운영·미리보기). 값을 저장소·채팅에 남기지 않는다. 로컬은 `.dev.vars`(gitignore).
+- 점검: `npx wrangler pages dev public --port 8788` 로 서버까지 띄운 뒤 `python3 tools/api-test.py http://127.0.0.1:8788 local-test-key`,
+  `node tools/robot-sim.js --base http://127.0.0.1:8788 --key local-test-key --fast 20` (주행 시뮬레이터 = 로봇 몸체 참고 구현).
+  배포된 곳에 api-test 를 돌리면 운영 DB 에 시험 기록이 남으니, 돌린 뒤 시험 기록을 지운다.
 
 ## 화면 원칙
 - 이 웹 화면이 **로봇의 얼굴 그 자체**입니다(로봇 머리에 화면을 다는 구조). 대기 화면은 화면 전체가 공작새 얼굴이어야 하고,
@@ -14,7 +35,7 @@
 - **지도는 고정**입니다(사용자 요청). 끌기·두 손가락 확대·확대 버튼을 넣지 않습니다. 태블릿 길 안내 지도는 층 전체를 보여 주고,
   지도에서는 누르기(방 선택)만 받습니다.
 - **QR 코드로 휴대폰에서 보기**: 길 안내 화면의 "휴대폰으로 보기" → QR 코드 → `m.html?to=<방id>&at=<층>,<x>,<y>[&mode=elevator][&k=restroom|elevator]`.
-  휴대폰 페이지(`m.html`, `js/mobile.js`, `css/mobile.css`)는 **세로 휴대폰** 기준(390×844)으로 확인합니다.
+  휴대폰 페이지(`m.html`, `index.html` 부르기)는 **세로 휴대폰** 기준(390×844)으로 확인합니다.
   QR 주소의 기준은 `js/config.js` 의 `publicUrl`. QR 라이브러리는 `js/vendor/qrcode.js`(MIT, qrcode-generator 1.4.4).
   지도 공통 스타일은 `css/map.css` (태블릿·휴대폰이 같이 씀).
 

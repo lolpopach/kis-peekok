@@ -2,89 +2,34 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-  <meta name="theme-color" content="#1A4FC0">
-  <!-- 태블릿: 홈 화면에 추가하면 주소창 없이 전체 화면으로 실행 -->
-  <link rel="manifest" href="manifest.webmanifest">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="피콕">
-  <meta name="format-detection" content="telephone=no">
-  <link rel="apple-touch-icon" href="icons/icon-180.png">
-  <title>학교 안내 로봇 피콕</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0A3D50">
+  <title>피콕 부르기 · 학교 배달 로봇</title>
+  <script>
+    // 로봇 태블릿으로 등록된 기기는 로봇 얼굴 화면으로 (그 외 기기는 이 '부르기' 화면)
+    try {
+      if (localStorage.getItem('kis-robot-device') === '1' && !/[?&]public\b/.test(location.search)) {
+        location.replace('robot.html' + location.search + location.hash);
+      }
+    } catch (e) { /* 저장소를 못 쓰면 그냥 이 화면 */ }
+  </script>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/map.css">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='18' r='12' fill='%231F68E0'/%3E%3Ccircle cx='11' cy='17' r='3' fill='%23fff'/%3E%3Ccircle cx='21' cy='17' r='3' fill='%23fff'/%3E%3Cpath d='M14 21h4l-2 5z' fill='%23F3EAD3'/%3E%3Ccircle cx='16' cy='4' r='3' fill='%2322C1C6'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/call.css">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
 </head>
 <body>
-  <!-- 1) 로봇의 얼굴: 화면 전체가 공작새 얼굴 (터치하면 안내 시작) -->
-  <section id="face-screen" class="screen is-active" tabindex="0" aria-label="안내 로봇의 얼굴. 터치하면 길 안내를 시작합니다">
-    <div class="face-full" id="big-face"></div>
-    <p class="face-caption" id="face-caption" aria-live="polite"></p>
-  </section>
-
-  <!-- 2) 안내 화면 -->
-  <section id="app-screen" class="screen" aria-label="학교 길 안내">
-    <header class="app-header">
-      <button class="mini-face" id="mini-face" aria-label="안내 로봇 피콕"></button>
-      <div class="bubble" id="bubble" aria-live="polite">어디로 안내해 드릴까요?</div>
-      <div class="header-actions">
-        <button class="hdr-btn" id="btn-sound" aria-pressed="true"></button>
-        <div class="clock" id="clock" title="관리자: 3초간 길게 누르기"></div>
-        <button class="hdr-btn hdr-home" id="btn-home"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11 12 3l9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/></svg><span>처음으로</span></button>
-      </div>
-    </header>
-    <main id="view" class="view-host"></main>
-
-    <!-- 화면 키보드 -->
-    <div id="kbd" class="kbd" hidden>
-      <div class="kbd-panel">
-        <div class="kbd-top">
-          <div class="kbd-input"><span id="kbd-placeholder" class="kbd-ph">장소 이름을 입력하세요</span><span id="kbd-text"></span><i class="caret"></i></div>
-          <button class="kbd-close" data-kbd-close aria-label="키보드 닫기"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
-        </div>
-        <div class="kbd-results" id="kbd-results"></div>
-        <div class="kbd-keys" id="kbd-keys"></div>
-      </div>
+  <header class="c-top">
+    <div class="c-brand">
+      <span class="c-avatar" id="c-avatar"></span>
+      <div><b>피콕 부르기</b><span>학교 배달 로봇</span></div>
+      <span class="c-status" id="c-status"><i></i><em>확인 중</em></span>
     </div>
-
-    <!-- 음성 질문 -->
-    <div id="voice" class="voice" hidden>
-      <div class="voice-card">
-        <div class="voice-face-wrap"><i class="ring r1"></i><i class="ring r2"></i><div id="voice-face" class="voice-face"></div></div>
-        <p class="voice-status" id="voice-status">듣고 있어요…</p>
-        <p class="voice-text" id="voice-text"></p>
-        <div class="voice-actions">
-          <button class="btn" id="voice-retry" hidden>다시 말하기</button>
-          <button class="btn" data-voice-close>닫기</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 휴대폰으로 보기 (QR 코드) -->
-    <div id="qr" class="qr-overlay" hidden>
-      <div class="qr-card" role="dialog" aria-modal="true" aria-label="휴대폰으로 길 안내 보기">
-        <div class="qr-code" id="qr-code"></div>
-        <div class="qr-text">
-          <p class="qr-kicker">휴대폰으로 길 안내 가져가기</p>
-          <h2>휴대폰 카메라로<br>QR 코드를 찍어 보세요</h2>
-          <div class="qr-dest" id="qr-dest"></div>
-          <ol class="qr-how">
-            <li>휴대폰 카메라 앱을 켜요</li>
-            <li>QR 코드를 화면에 비춰요</li>
-            <li>뜨는 링크를 누르면 지도와 길 안내가 나와요</li>
-          </ol>
-          <p class="qr-host" id="qr-host"></p>
-          <button class="btn btn-primary qr-close" data-qr-close>확인</button>
-        </div>
-      </div>
-    </div>
-
-    <div id="admin" class="admin" hidden></div>
-  </section>
+  </header>
+  <main class="c-main" id="c-main" aria-live="polite"></main>
+  <footer class="c-foot">학교 안내·배달 로봇 피콕</footer>
 
   <script src="js/config.js"></script>
   <script src="js/data.js"></script>
@@ -94,8 +39,6 @@
   <script src="js/search.js"></script>
   <script src="js/face.js"></script>
   <script src="js/map.js"></script>
-  <script src="js/robot.js"></script>
-  <script src="js/vendor/qrcode.js"></script>
-  <script src="js/app.js"></script>
+  <script src="js/call.js"></script>
 </body>
 </html>

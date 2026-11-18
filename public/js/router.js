@@ -198,7 +198,9 @@ KIS.Router = (function () {
     });
     pts[0].type = 'start';
     pts[0].fromPt = [from.x, from.y];
-    return buildRoute(pts, room, door, from, sp.cost);
+    const built = buildRoute(pts.map((p) => Object.assign({}, p)), room, door, from, sp.cost);
+    built.raw = pts; // 중간 층(엘리베이터로 지나치는 층)까지 모두 담긴 원래 노드 순서 — 로봇 주행 계획에 사용
+    return built;
   }
 
   /* 경로를 층별 구간으로 나누고 안내 문장을 만든다 */
@@ -394,8 +396,89 @@ KIS.Router = (function () {
     return best;
   }
 
+  /* ── 로봇(라인 트레이스) 주행 계획 ──
+   * 로봇은 계단을 못 쓰므로 엘리베이터만 사용한다. 길 찾기 그래프의 노드(복도 교차점)가 라인 트레이스 노드가 된다.
+   * nodes[i] = { key, floor, x, y, action, heading, next_m, toFloor? }
+   *   key     : 노드 이름 '층:id' (data.js nodes). 처음과 끝은 'START' / 'END' (복도 중간 지점)
+   *   action  : 이 노드에서 할 일 — start | straight | left | right | uturn | elevator | stop
+   *   heading : 이 노드를 떠날 때 향하는 지도 방향 (N 위 · S 아래 · E 오른쪽 · W 왼쪽)
+   *   next_m  : 다음 노드까지 거리(m). 등속도로 달리면 지난 시간으로 위치를 알 수 있다.
+   */
+  const compass = (a, b) => {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? 'E' : 'W';
+    return dy >= 0 ? 'S' : 'N';
+  };
+  function makePlan(r, to) {
+    if (!r || r.fallback) return null;
+    // 마지막 점 = 목적지 문 앞의 복도 중심선 위 지점 (로봇이 멈출 곳)
+    const raw = r.raw.map((p, i, arr) => (i === arr.length - 1 ? Object.assign({}, p, { key: '__END' }) : p));
+    const list = [];
+    raw.forEach((p, i) => {
+      const prev = list[list.length - 1];
+      // 엘리베이터로 여러 층을 지나칠 때는 타는 곳과 내리는 곳만 남긴다
+      if (prev && p.type === 'elev' && prev.type === 'elev' && raw[i + 1] && raw[i + 1].type === 'elev') return;
+      if (prev && Math.abs(prev.x - p.x) < 0.01 && Math.abs(prev.y - p.y) < 0.01 && prev.floor === p.floor) return;
+      list.push(p);
+    });
+    const nodes = list.map((p, i) => {
+      const key = p.key === '__S' ? 'START' : p.key === '__END' ? 'END' : p.key;
+      const next = list[i + 1], prev = list[i - 1];
+      const n = { key, floor: p.floor, x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10, type: p.type };
+      if (!next) { n.action = 'stop'; return n; }
+      if (next.floor !== p.floor) {
+        n.action = 'elevator';
+        n.toFloor = next.floor;
+        n.next_m = 0;
+        return n;
+      }
+      n.heading = compass(p, next);
+      n.next_m = Math.round(dist([p.x, p.y], [next.x, next.y]) * CFG.metersPerUnit * 100) / 100;
+      if (i === 0) n.action = 'start';
+      else if (prev && prev.floor !== p.floor) n.action = 'exit';   // 엘리베이터에서 내려 heading 방향으로
+      else {
+        const d = turnDir([prev.x, prev.y], [p.x, p.y], [next.x, next.y]);
+        n.action = d === 'back' ? 'uturn' : d;
+      }
+      return n;
+    });
+    const total = nodes.reduce((s, n) => s + (n.next_m || 0), 0);
+    return {
+      v: 1, mode: 'elevator', metersPerUnit: CFG.metersPerUnit,
+      to: to || { room: r.room.id, label: r.room.title || r.room.name, floor: r.room.floor },
+      total_m: Math.round(total * 10) / 10, nodes,
+    };
+  }
+  function robotPlan(from, room) {
+    return makePlan(route(from, room, { mode: 'elevator' }));
+  }
+  // 방이 아닌 한 점(예: 로봇 제자리)으로 가는 계획
+  function robotPlanToPoint(from, pt) {
+    const room = {
+      id: `pt-${pt.floor}-${pt.x}-${pt.y}`, name: pt.label || '제자리', floor: pt.floor, cat: 'neutral',
+      rects: [[pt.x - 0.5, pt.y - 0.5, pt.x + 0.5, pt.y + 0.5]], doors: [[pt.x, pt.y]],
+    };
+    room.rect = room.rects[0];
+    return makePlan(route(from, room, { mode: 'elevator' }), { room: null, label: pt.label || '제자리', floor: pt.floor });
+  }
+
+  /* 주행 보고(progress)로 지금 로봇 위치 추정: 지난 노드에서 다음 노드 쪽으로 등속도로 이동했다고 본다 */
+  function locate(plan, progress, nowMs) {
+    if (!plan || !plan.nodes || !progress) return null;
+    const i = plan.nodes.findIndex((n) => n.key === progress.passed);
+    if (i < 0) return null;
+    const a = plan.nodes[i];
+    const b = plan.nodes[i + 1];
+    if (!b || a.action === 'elevator') return { floor: a.floor, x: a.x, y: a.y, at: a.key, next: b ? b.key : null, inElevator: a.action === 'elevator' };
+    const speed = progress.speed || CFG.robotSpeed || 0.5;
+    const meters = Math.max(0, ((nowMs || Date.now()) - progress.at) / 1000) * speed;
+    const k = a.next_m ? Math.min(0.97, meters / a.next_m) : 0;
+    return { floor: a.floor, x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, at: a.key, next: b.key, k };
+  }
+
   return {
     route, nearest, josa, displayName, roomCenter, roomDoors, landmark, fmtMeters,
+    robotPlan, robotPlanToPoint, locate,
     debug: { nodes, floorEdges, attachPoint },
   };
 })();

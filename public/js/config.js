@@ -22,6 +22,7 @@ KIS.CONFIG = {
 
   metersPerUnit: 0.24,     // 도면 1단위 ≈ 0.24m (교실 한 칸 ≈ 9m 기준)
   walkSpeed: 1.1,          // 걷는 속도 m/s
+  robotSpeed: 0.5,         // 로봇(라인 트레이스) 기본 속도 m/s — 주행 보고에 speed 가 없을 때 위치 추정에 사용
   secondsPerFloor: 20,     // 계단 한 층 오르내리는 시간(초)
   adminHoldMs: 3000,       // 관리자 화면을 여는 길게 누르기 시간
 };

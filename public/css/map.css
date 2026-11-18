@@ -38,9 +38,9 @@
 @keyframes pin-bob { 50% { transform: translateY(-3px); } }
 .map-flash { fill: none; stroke: var(--accent); stroke-width: 2.4; transform-box: fill-box; transform-origin: center; animation: flash 1.5s ease-out forwards; }
 @keyframes flash { from { transform: scale(.3); opacity: 1; } to { transform: scale(2.4); opacity: 0; } }
-/* 데려다주기: 로봇 위치 · 사람 혼자 가는 남은 길 */
-.route-rest { fill: none; stroke: var(--accent); stroke-width: 2.4; stroke-dasharray: 2 4; stroke-linecap: round; stroke-linejoin: round; opacity: .75; }
-.map-robot { pointer-events: none; }
-.map-robot-halo { fill: var(--peacock); opacity: .18; }
-.map-robot-dot { fill: var(--peacock); stroke: #fff; stroke-width: 2; }
-.map-robot-arrow { fill: var(--peacock); stroke: #fff; stroke-width: 1.2; stroke-linejoin: round; }
+
+/* 로봇 실시간 위치 */
+.map-robot { pointer-events: none; transition: transform .6s linear; }
+.map-robot-halo { fill: #10A3AC; opacity: .25; transform-box: fill-box; transform-origin: center; animation: you-pulse 1.6s ease-out infinite; }
+.map-robot-dot { fill: #10A3AC; stroke: #fff; stroke-width: 2; }
+.map-robot-label { fill: #0B5F66; font-weight: 800; paint-order: stroke; stroke: #fff; stroke-width: 1.6px; }

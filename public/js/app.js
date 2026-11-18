@@ -2,7 +2,7 @@
  *   얼굴 화면(대기) → 터치 → 메인 메뉴 → 장소 선택 → 길 안내(지도 + 단계별 설명 + 음성)
  */
 (function () {
-  const CFG = KIS.CONFIG, D = KIS.DATA, RT = KIS.Router, S = KIS.Search, I = KIS.icon, Robot = KIS.Robot;
+  const CFG = KIS.CONFIG, D = KIS.DATA, RT = KIS.Router, S = KIS.Search, I = KIS.icon;
   const $ = (s, r = document) => r.querySelector(s);
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -138,6 +138,7 @@
           <div class="search-row">
             <button class="search-box" data-action="search">${I('search')}<span>장소 이름 검색 <em>예) 보건실, 5-1, ㅂㄱㅅ</em></span></button>
             ${SR ? `<button class="mic-btn" data-action="voice">${I('mic')}<span>말로 묻기</span></button>` : ''}
+            ${hooks.homeExtra ? hooks.homeExtra() : ''}
           </div>
         </div>
         <div class="quick-grid">
@@ -249,7 +250,7 @@
       const segs = r.segments;
       const cur = state.seg;
       const title = p.kind === 'restroom' ? '가장 가까운 화장실' : p.kind === 'elevator' ? '가장 가까운 엘리베이터' : (room.title || room.name);
-      const mins = fmtMin(r.seconds);
+      const mins = r.seconds < 50 ? '1분 이내' : `약 ${Math.round(r.seconds / 60)}분`;
       const multi = r.floorsMoved > 0;
       return `<section class="view view-route">
         <div class="card route-map">
@@ -287,7 +288,7 @@
               <span class="step-text">${esc(s.text)}</span>
               <span class="step-floor">${s.floor}층</span></button></li>`).join('')}
           </ol>
-          ${guideChoice()}
+          ${(hooks.routeChoice && hooks.routeChoice(r, p)) || `<button class="qr-btn" data-action="qr">${I('qr')}<span><b>휴대폰으로 보기</b><small>QR 코드를 찍으면 이 길 안내가 휴대폰에 떠요</small></span>${I('chevron')}</button>`}
           <div class="route-actions">
             <button class="btn" data-action="replay">${I('sound')}다시 듣기</button>
             <button class="btn btn-primary" data-action="back">${I('search')}다른 곳 찾기</button>
@@ -296,80 +297,10 @@
       </section>`;
     },
 
-    // 데려다주기: 로봇이 앞서 가고 사람이 따라오는 동안 / 도착한 뒤
-    escort() {
-      const ep = Escort.plan;
-      if (!ep) return views.notfound();
-      const room = ep.room, dest = destName(room, Escort.kind);
-      const arrived = Escort.phase === 'arrived';
-      const s = Robot.status();
-      const head = arrived
-        ? `<div class="esc-hero is-done"><span class="esc-ico">${I('arrive')}</span><div><p class="esc-kicker">${ep.handoff ? '여기까지 함께 왔어요' : '데려다주기 완료'}</p><h2>${ep.handoff ? '나머지는 휴대폰으로' : '도착했어요!'}</h2></div></div>`
-        : `<div class="esc-hero${s.paused ? ' is-paused' : ''}"><span class="esc-ico">${I('walk')}</span><div><p class="esc-kicker">데려다주기</p><h2 id="esc-headline">${escHeadline(s)}</h2></div></div>`;
-      const destRow = `<div class="dest">
-          <span class="dest-badge cat-${room.cat}"><b>${room.floor}</b>층</span>
-          <div class="dest-text"><h2>${esc(dest)}</h2><p>${ep.handoff ? `${esc(ep.stopName)}까지 함께 가고, 나머지는 QR 코드로` : '문 앞까지 함께 가요'}</p></div>
-        </div>`;
-      const restSteps = `<ol class="steps">${ep.rest.steps.slice(1).map((st) => `<li><div class="step is-cur step-${st.icon}">
-          <span class="step-ico">${I(st.icon)}</span><span class="step-text">${esc(st.text)}</span><span class="step-floor">${st.floor}층</span></div></li>`).join('')}</ol>`;
-      const panel = arrived
-        ? `${head}${destRow}
-          ${ep.handoff ? `<div class="esc-qr"><div class="esc-qr-code">${QR.svg(QR.urlFor(ep.rest, Escort.kind))}</div>
-            <div><b>휴대폰 카메라로 찍어 보세요</b><p>여기서부터 ${esc(dest)}까지 길 안내가 휴대폰에 떠요</p></div></div>` : ''}
-          ${restSteps}
-          <p class="esc-count" id="esc-count"></p>
-          <div class="route-actions">
-            <button class="btn" data-action="esc-replay">${I('sound')}다시 듣기</button>
-            <button class="btn btn-primary" data-action="esc-done">${I('home')}고마워요</button>
-          </div>`
-        : `${head}${destRow}
-          <div class="esc-progress" aria-hidden="true"><i id="esc-bar"></i></div>
-          <div class="dest-meta">
-            <div><b id="esc-remain">-</b><span>남은 거리</span></div>
-            <div><b id="esc-eta">-</b><span>남은 시간</span></div>
-            <div><b id="esc-next">-</b><span>다음 회전</span></div>
-          </div>
-          <p class="esc-now" id="esc-now"></p>
-          <div class="esc-spacer"></div>
-          <div class="route-actions">
-            ${s.paused ? `<button class="btn btn-primary" data-action="esc-resume">${I('walk')}다시 가요</button>` : `<button class="btn" data-action="esc-pause">${I('pause')}잠깐 멈춰요</button>`}
-            <button class="btn btn-stop" data-action="esc-cancel">${I('close')}그만할래요</button>
-          </div>`;
-      return `<section class="view view-route view-escort">
-        <div class="card route-map">
-          <div class="map-top">
-            <div class="esc-title">${I('walk')}<b>${arrived ? (ep.handoff ? '남은 길' : '도착') : '피콕을 따라오세요'}</b><span>${ep.stopAt.floor}층</span></div>
-            <div class="map-legend"><span><i class="sw sw-robot"></i>피콕</span><span><i class="sw sw-route"></i>${arrived ? '남은 길' : '함께 가는 길'}</span>${!arrived && ep.handoff ? '<span><i class="sw sw-rest"></i>그다음 혼자 가는 길</span>' : ''}</div>
-          </div>
-          <div class="map-host" id="escort-map"></div>
-        </div>
-        <aside class="card route-panel esc-panel">${panel}</aside>
-      </section>`;
-    },
-
     notfound() {
       return `<section class="view">${viewHead('길 안내')}<div class="empty"><h2>경로를 찾지 못했어요</h2><p>선생님께 문의해 주세요.</p></div></section>`;
     },
   };
-
-  const fmtMin = (sec) => (sec < 50 ? '1분 이내' : `약 ${Math.round(sec / 60)}분`);
-  const destName = (room, kind) => (kind === 'restroom' ? '가장 가까운 화장실' : kind === 'elevator' ? '가장 가까운 엘리베이터' : nameOf(room));
-  const TURN_WORD = { L: '왼쪽', R: '오른쪽', U: '뒤쪽' };
-
-  // 길 안내 화면 아래: 안내 방식 고르기 (데려다주기 / QR 만 주기)
-  function guideChoice() {
-    const ep = state.escortPlan;
-    if (!Robot.enabled() || !ep) {
-      return `<button class="qr-btn" data-action="qr">${I('qr')}<span><b>휴대폰으로 보기</b><small>QR 코드를 찍으면 이 길 안내가 휴대폰에 떠요</small></span>${I('chevron')}</button>`;
-    }
-    const sub = ep.ok ? `${ep.handoff ? `${esc(ep.stopName)}까지 함께 가요` : '문 앞까지 함께 가요'} · ${fmtMin(ep.seconds)}` : esc(ep.reason);
-    return `<div class="guide-choice" role="group" aria-label="안내 방식">
-      <button class="guide-opt guide-escort" data-action="escort"${ep.ok ? '' : ' disabled'}>
-        <span class="guide-ico">${I('walk')}</span><span class="guide-text"><b>데려다주세요</b><small>${sub}</small></span></button>
-      <button class="guide-opt guide-qr" data-action="qr">
-        <span class="guide-ico">${I('qr')}</span><span class="guide-text"><b>QR로 받을게요</b><small>휴대폰으로 길 안내 가져가기</small></span></button>
-    </div>`;
-  }
 
   function floorTabs(cur, action) {
     return `<div class="floor-tabs" role="tablist">${D.floors.map((f) => `<button role="tab" class="${f.id === cur ? 'is-on' : ''}" data-action="${action}" data-id="${f.id}">${f.name}${f.id === state.location.floor ? '<i class="here-dot" title="현재 층"></i>' : ''}</button>`).join('')}</div>`;
@@ -411,13 +342,17 @@
     main.scrollTop = 0;
     if (view === 'map') mountBrowseMap(params);
     if (view === 'route') mountRouteMap();
-    if (view === 'escort') mountEscortMap();
     if (view === 'results' && $('#empty-face')) {
       const f = KIS.createFace($('#empty-face'), { mini: true });
       f.setMood('sad');
     }
     if (view === 'home') { miniFace.setMood('idle'); }
+    $('#app-screen').classList.toggle('is-picking', !!state.pick);
+    if (hooks.onRender) hooks.onRender(view, params);
   }
+
+  // 배달 기능(js/delivery.js)이 화면 흐름에 끼어드는 자리
+  const hooks = {};
 
   function mountBrowseMap(p) {
     const f = p.floor || state.location.floor;
@@ -435,7 +370,7 @@
     sh.hidden = false;
     sh.innerHTML = `<div class="sheet-text"><span class="dest-badge cat-${room.cat}"><b>${room.floor}</b>층</span>
       <div><h3>${esc(room.title || room.name)}</h3><p>${esc(catLabel(room))}</p></div></div>
-      <button class="btn btn-primary" data-action="room" data-id="${room.id}">${I('arrive')}여기로 길 안내</button>
+      <button class="btn btn-primary" data-action="room" data-id="${room.id}">${I('arrive')}${state.pick ? '여기로 배달' : '여기로 길 안내'}</button>
       <button class="sheet-close" data-action="sheet-close" aria-label="닫기">${I('close')}</button>`;
   }
 
@@ -465,8 +400,16 @@
 
   /* ── 길 안내 시작 ── */
   function startRoute(target, kind) {
+    // 배달 받는 곳 고르는 중이면 길 안내 대신 그 장소를 넘겨준다
+    if (state.pick) {
+      if (kind) { bubble('배달 받는 곳은 교실이나 장소를 골라 주세요.', false); return; }
+      const pick = state.pick;
+      state.pick = null;
+      pick(target);
+      return;
+    }
     let r;
-    const from = here();
+    const from = (hooks.here && hooks.here()) || state.location; // 로봇이 제자리를 떠나 있으면 로봇이 있는 곳에서
     if (kind) {
       const pred = kind === 'restroom' ? (x) => x.cat === 'restroom' : (x) => x.cat === 'elev';
       r = RT.nearest(from, pred, { mode: state.mode });
@@ -475,38 +418,29 @@
       r = room && RT.route(from, room, { mode: state.mode });
     }
     state.route = r;
-    state.escortPlan = r && Robot.enabled() ? Robot.planFor(r.room, { mode: state.mode }) : null;
     state.seg = 0;
     state.autoShown = false;
     const params = kind ? { kind } : { id: target };
     if (state.current && state.current.view === 'route') { state.current.params = params; render(); }
     else go('route', params);
     if (!r) { bubble('죄송해요, 그곳으로 가는 길을 찾지 못했어요.'); miniFace.setMood('sad'); return; }
-    announce(r, kind, state.escortPlan && state.escortPlan.ok);
+    announce(r, kind);
   }
 
-  function announce(r, kind, ask) {
-    const name = destName(r.room, kind);
+  function announce(r, kind, full) {
+    const name = kind === 'restroom' ? '가장 가까운 화장실' : kind === 'elevator' ? '가장 가까운 엘리베이터' : nameOf(r.room);
     const sameFloor = r.room.floor === r.from.floor;
     const head = `${RT.josa(name, '은/는')} ${sameFloor ? `이 층(${r.room.floor}층)` : `${r.room.floor}층`}에 있어요.`;
-    miniFace.react('happy', 1600);
-    if (ask) {
-      // 안내 방식 고르기: 데려다주기 / QR 만 주기
+    // 안내 방식(데려다주기 / QR)을 고를 수 있으면 길 설명 대신 먼저 물어본다
+    if (!full && hooks.routeAsk && hooks.routeAsk(r)) {
+      miniFace.react('happy', 1600);
       $('#bubble').textContent = `${head} 제가 데려다 드릴까요?`;
       Speech.say(`${head} 제가 데려다 드릴까요? 휴대폰으로 길 안내를 받으셔도 돼요.`);
       return;
     }
+    miniFace.react('happy', 1600);
     $('#bubble').textContent = `${head} 지도를 보고 따라가세요!`;
     Speech.say(`${head} ${r.steps.slice(1).map((s) => s.text).join('. ')}.`);
-  }
-
-  // 지금 위치: 로봇이 집(로비)을 떠나 있으면 로봇이 서 있는 곳
-  function here() {
-    if (Robot.enabled() && !Robot.isHome()) {
-      const p = Robot.pose();
-      if (p) return { floor: p.floor, x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10, label: '안내 로봇 앞' };
-    }
-    return state.location;
   }
 
   /* ── 이벤트 ── */
@@ -533,7 +467,7 @@
           startRoute(p.id, p.kind);
         }
         break;
-      case 'replay': if (state.route) announce(state.route, state.current.params.kind, false); break;
+      case 'replay': if (state.route) announce(state.route, state.current.params.kind, true); break;
       case 'step': {
         const s = state.route.steps[Number(id)];
         const i = segIndexForStep(s);
@@ -544,21 +478,17 @@
         break;
       }
       case 'qr': QR.open(); break;
-      case 'escort': startEscort(); break;
-      case 'esc-pause': Robot.pause(); break;
-      case 'esc-resume': Robot.resume(); break;
-      case 'esc-cancel': cancelEscort(); break;
-      case 'esc-done': finishEscort(); break;
-      case 'esc-replay': arriveSpeech(); break;
       case 'sheet-close': $('#room-sheet').hidden = true; mapView.clearOverlay(); if (mapView.floorId === state.location.floor) mapView.you(state.location.x, state.location.y, '현재 위치'); break;
-      default: break;
+      default: if (hooks.onAction) hooks.onAction(a, id, b); break;
     }
   });
 
   $('#btn-home').addEventListener('click', () => {
     Speech.stop();
-    if (Escort.phase) { endEscort(); goHome(); bubble('안내를 마칠게요. 저는 로비로 돌아갈게요.'); return; }
-    goHome(); bubble('어디로 안내해 드릴까요?', false);
+    if (hooks.onHome && hooks.onHome()) return;
+    state.pick = null;
+    goHome();
+    bubble('어디로 안내해 드릴까요?', false);
   });
   $('#btn-sound').addEventListener('click', () => {
     state.voice = !state.voice;
@@ -595,21 +525,26 @@
     bigFace.talk(false);
   }
 
+  function showApp() {
+    faceScreen.classList.remove('is-active');
+    appScreen.classList.add('is-active');
+    clearCaption();
+    resetIdle();
+  }
   function wake() {
     if (waking) return;
+    // 배달 중이면 배달 화면을 먼저 보여 준다
+    if (hooks.onWake && hooks.onWake()) return;
     waking = true;
     clearTimeout(idleCapT);
     bigFace.react('happy', 1400);
     caption('안녕하세요! 어디로 안내해 드릴까요?', 2000);
     Speech.say(`안녕하세요! 저는 ${iAm}. 어디로 안내해 드릴까요?`);
     setTimeout(() => {
-      faceScreen.classList.remove('is-active');
-      appScreen.classList.add('is-active');
-      clearCaption();
+      showApp();
       $('#bubble').textContent = '어디로 안내해 드릴까요?';
       goHome();
       waking = false;
-      resetIdle();
     }, 1100);
   }
   function sleep() {
@@ -618,6 +553,7 @@
     Voice.stop();
     closeAdmin();
     QR.close();
+    state.pick = null;
     state.mode = 'stairs';
     state.route = null;
     state.stack = [];
@@ -630,12 +566,12 @@
   faceScreen.addEventListener('click', wake);
   faceScreen.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') wake(); });
 
-  let idleT;
+  let idleT, lastTouch = Date.now();
   function resetIdle() {
+    lastTouch = Date.now();
     clearTimeout(idleT);
     if (!appScreen.classList.contains('is-active')) return;
-    if (Escort.phase === 'going') return;               // 따라오는 동안은 화면을 건드리지 않으니 얼굴로 돌아가지 않음
-    if (Escort.phase === 'arrived') { armEscortReturn(); return; }
+    if (hooks.holdIdle && hooks.holdIdle()) return; // 데려다주기 중에는 얼굴로 돌아가지 않음
     idleT = setTimeout(sleep, state.idleSec * 1000);
   }
   ['pointerdown', 'keydown', 'wheel'].forEach((ev) => document.addEventListener(ev, resetIdle, { passive: true }));
@@ -653,10 +589,12 @@
     if (CFG.faceCaptions === false) return;
     idleCapT = setTimeout(() => {
       if (faceScreen.classList.contains('is-active') && !waking) {
-        caption(idleLines[idleI % idleLines.length]);
-        idleI++;
+        // 배달 중이면 배달 이야기를, 아니면 평소 인사를
+        const mission = hooks.missionLine && hooks.missionLine();
+        if (mission) caption(mission, 6000);
+        else { caption(idleLines[idleI % idleLines.length]); idleI++; }
       }
-      scheduleIdleCaption(11000 + Math.random() * 6000);
+      scheduleIdleCaption(hooks.missionLine && hooks.missionLine() ? 8000 : 11000 + Math.random() * 6000);
     }, ms);
   }
   scheduleIdleCaption(2500);
@@ -678,6 +616,7 @@
     const box = $('#kbd');
     const comp = new KIS.Hangul.Composer();
     let layout = 'ko', shift = false;
+    let input = null; // 글자 입력 모드 { title, onDone, max, chips } — 없으면 장소 검색 모드
     const KO = [['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-'], ['ㅂ', 'ㅈ', 'ㄷ', 'ㄱ', 'ㅅ', 'ㅛ', 'ㅕ', 'ㅑ', 'ㅐ', 'ㅔ'], ['ㅁ', 'ㄴ', 'ㅇ', 'ㄹ', 'ㅎ', 'ㅗ', 'ㅓ', 'ㅏ', 'ㅣ'], ['⇧', 'ㅋ', 'ㅌ', 'ㅊ', 'ㅍ', 'ㅠ', 'ㅜ', 'ㅡ', '⌫']];
     const SHIFT = { ㅂ: 'ㅃ', ㅈ: 'ㅉ', ㄷ: 'ㄸ', ㄱ: 'ㄲ', ㅅ: 'ㅆ', ㅐ: 'ㅒ', ㅔ: 'ㅖ' };
     const EN = [['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-'], ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'], ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'], ['Z', 'X', 'C', 'V', 'B', 'N', 'M', '⌫']];
@@ -694,12 +633,19 @@
         <button class="key key-wide" data-k="lang">${layout === 'ko' ? 'ABC' : '한글'}</button>
         <button class="key key-space" data-k=" ">띄어쓰기</button>
         <button class="key key-wide" data-k="clear">전체 지움</button>
-        <button class="key key-go" data-k="go">${I('search')}검색</button></div>`;
+        <button class="key key-go" data-k="go">${input ? `${I('arrive')}완료` : `${I('search')}검색`}</button></div>`;
     }
     function update() {
-      const v = comp.value();
+      let v = comp.value();
+      if (input && input.max && v.length > input.max) { comp.backspace(); v = comp.value(); }
       $('#kbd-text').textContent = v;
       $('#kbd-placeholder').hidden = !!v;
+      if (input) {
+        $('#kbd-results').innerHTML = (input.chips || []).length
+          ? input.chips.map((c) => `<button class="kbd-hit kbd-chip" data-chip="${esc(c)}"><b>${esc(c)}</b></button>`).join('')
+          : `<p class="kbd-tip">${esc(input.tip || '')}</p>`;
+        return;
+      }
       const res = v.trim() ? S.search(v, { limit: 8 }) : [];
       $('#kbd-results').innerHTML = !v.trim() ? '<p class="kbd-tip">장소 이름의 첫 글자(초성)만 눌러도 찾을 수 있어요. 예) ㅂㄱㅅ → 보건실</p>'
         : res.length ? res.map((x) => (x.special
@@ -708,6 +654,8 @@
           : '<p class="kbd-tip">아직 맞는 장소가 없어요</p>';
     }
     box.addEventListener('click', (e) => {
+      const chip = e.target.closest('[data-chip]');
+      if (chip) { comp.clear(); Array.from(chip.dataset.chip).forEach((ch) => { comp.text += ch; }); update(); return; }
       const hit = e.target.closest('[data-hit]');
       if (hit) { close(); startRoute(hit.dataset.hit); return; }
       const hn = e.target.closest('[data-hit-nearest]');
@@ -722,6 +670,7 @@
       else if (v === 'clear') comp.clear();
       else if (v === 'go') {
         const q = comp.value().trim();
+        if (input) { const done = input.onDone; close(); done(q); return; }
         if (!q) return;
         close();
         const res = S.search(q);
@@ -742,14 +691,18 @@
       else if (e.key === 'Enter') box.querySelector('[data-k="go"]').click();
       else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) { comp.input(e.key.toUpperCase() === e.key.toLowerCase() ? e.key : e.key.toUpperCase()); update(); }
     });
-    function open() {
+    // opts 없이 열면 장소 검색, opts = { title, initial, onDone(text), max, chips, tip } 이면 글자 입력
+    function open(opts) {
+      input = opts || null;
       comp.clear(); layout = 'ko'; shift = false;
+      if (input && input.initial) comp.text = input.initial;
+      $('#kbd-placeholder').textContent = input ? input.title : '장소 이름을 입력하세요';
       keys(); update();
       box.hidden = false;
       requestAnimationFrame(() => box.classList.add('is-open'));
-      bubble('찾는 장소 이름을 눌러 주세요.', false);
+      if (!input) bubble('찾는 장소 이름을 눌러 주세요.', false);
     }
-    function close() { box.classList.remove('is-open'); box.hidden = true; }
+    function close() { box.classList.remove('is-open'); box.hidden = true; input = null; }
     return { open, close };
   })();
 
@@ -822,9 +775,9 @@
   const QR = (function () {
     const box = $('#qr');
     let closeT;
-    // r: 경로 (출발점 r.from 에서 r.room 까지). 데려다준 뒤에는 로봇이 멈춘 곳에서 시작하는 경로를 넘긴다
-    function routeUrl(r, kind) {
-      const L = r.from, mode = r.mode || state.mode;
+    // r: 경로 (출발점 r.from → r.room). 데려다준 뒤에는 로봇이 멈춘 곳에서 시작하는 경로를 넘긴다
+    function routeUrl(r = state.route, kind = state.current.params.kind) {
+      const L = r.from || state.location, mode = r.mode || state.mode;
       // Cloudflare Pages 는 m.html 을 m 으로 넘겨주므로 공개 주소에서는 바로 m 을 쓴다 (QR 도 짧아짐)
       const base = (CFG.publicUrl ? new URL('m', CFG.publicUrl) : new URL('m.html', location.href)).toString();
       const n = (x) => Math.round(x * 10) / 10;
@@ -847,7 +800,7 @@
       if (!state.route) return;
       const p = state.current.params, room = state.route.room;
       const title = p.kind === 'restroom' ? '가장 가까운 화장실' : p.kind === 'elevator' ? '가장 가까운 엘리베이터' : (room.title || room.name);
-      const url = routeUrl(state.route, p.kind);
+      const url = routeUrl();
       $('#qr-code').innerHTML = svgFor(url);
       $('#qr-dest').innerHTML = `<span class="dest-badge cat-${room.cat}"><b>${room.floor}</b>층</span><b>${esc(title)}</b>`;
       $('#qr-host').textContent = new URL(url).host;
@@ -863,145 +816,8 @@
       box.hidden = true;
     }
     box.addEventListener('click', (e) => { if (e.target === box || e.target.closest('[data-qr-close]')) close(); });
-    return { open, close, url: () => routeUrl(state.route, state.current.params.kind), urlFor: routeUrl, svg: svgFor };
+    return { open, close, url: () => routeUrl(), urlFor: routeUrl, svg: svgFor };
   })();
-
-  /* ── 데려다주기 ──
-   * 길 안내 화면에서 "데려다주세요" → 로봇이 앞서 가고(지도에 실시간 위치) → 도착하면 안내 →
-   * 잠시 뒤(또는 "고마워요") 로봇은 혼자 집(로비)으로 돌아가고 화면은 얼굴로 돌아간다.
-   * 로봇 주행·통신은 js/robot.js (지금은 시뮬레이터, ESP32 는 KIS.Robot.useTransport 로 연결)
-   */
-  const Escort = { phase: null, plan: null, kind: null, timer: 0, countT: 0, raf: 0 };
-  function startEscort() {
-    const ep = state.escortPlan;
-    if (!ep || !ep.ok) { if (ep) bubble(ep.reason); return; }
-    if (!Robot.escort(ep)) { bubble('지금은 데려다 드릴 수 없어요. 휴대폰으로 길 안내를 받아 주세요.'); return; }
-    Escort.plan = ep;
-    Escort.kind = state.current.params.kind;
-    Escort.phase = 'going';
-    QR.close();
-    go('escort', {});
-    const target = ep.handoff ? ep.stopName : destName(ep.room, Escort.kind);
-    miniFace.react('happy', 1600);
-    bubble(`저를 따라오세요! ${target}까지 함께 갈게요.`);
-  }
-  function arriveSpeech() {
-    const ep = Escort.plan;
-    if (!ep) return;
-    const dest = destName(ep.room, Escort.kind);
-    let text;
-    if (ep.handoff) {
-      text = ep.room.floor !== ep.stopAt.floor
-        ? `여기까지 함께 왔어요. ${RT.josa(dest, '은/는')} ${ep.room.floor}층에 있어요. 남은 길은 QR 코드를 찍어서 휴대폰으로 보세요.`
-        : `여기까지 함께 왔어요. ${dest}까지 남은 길은 QR 코드를 찍어서 휴대폰으로 보세요.`;
-    } else {
-      const st = ep.rest.steps.slice(1);
-      const last = st.length ? st[st.length - 1].text.replace(/^도착!\s*/, '') : `${RT.josa(dest, '이/가')} 바로 여기예요`;
-      text = st.length > 1 ? `거의 다 왔어요! ${st.slice(0, -1).map((x) => x.text).join('. ')}. ${last}.` : `도착했어요! ${last}.`;
-    }
-    $('#bubble').textContent = ep.handoff ? '남은 길은 QR 코드로 휴대폰에서 보세요!' : '도착했어요!';
-    Speech.say(text);
-  }
-  // 도착 후 이만큼 아무도 안 누르면 로봇은 로비로 돌아간다 (QR 을 찍을 시간은 넉넉히)
-  function armEscortReturn() {
-    clearTimeout(Escort.timer);
-    clearInterval(Escort.countT);
-    const sec = Escort.plan && Escort.plan.handoff ? 60 : 25;
-    const until = Date.now() + sec * 1000;
-    const show = () => {
-      const c = $('#esc-count');
-      if (c) c.textContent = `${Math.max(0, Math.ceil((until - Date.now()) / 1000))}초 뒤에 피콕은 로비로 돌아가요`;
-    };
-    show();
-    Escort.countT = setInterval(show, 1000);
-    Escort.timer = setTimeout(finishEscort, sec * 1000);
-  }
-  // 안내를 마치고 로봇을 집으로 보낸다
-  function endEscort() {
-    clearTimeout(Escort.timer);
-    clearInterval(Escort.countT);
-    cancelAnimationFrame(Escort.raf);
-    Escort.phase = null;
-    Escort.plan = null;
-    Robot.returnHome();
-  }
-  function finishEscort() {
-    if (!Escort.phase) return;
-    endEscort();
-    sleep();
-    caption('로비로 돌아갈게요. 안녕히 가세요!', 3200);
-  }
-  function cancelEscort() {
-    endEscort();
-    goHome();
-    bubble('안내를 멈출게요. 저는 로비로 돌아갈게요.');
-    resetIdle();
-  }
-  function escHeadline(s) {
-    if (s.lost) return '길을 잃었어요. 선생님을 불러 주세요';
-    if (s.paused) return '잠깐 멈췄어요';
-    if (s.turning && s.nextTurn && TURN_WORD[s.nextTurn]) return `${TURN_WORD[s.nextTurn]}으로 돌아요`;
-    return '저를 따라오세요!';
-  }
-  function mountEscortMap() {
-    const ep = Escort.plan;
-    mapView = new KIS.MapView($('#escort-map'), {});
-    mapView.setFloor(ep.stopAt.floor);
-    const restSeg = ep.rest.segments[0];
-    if (Escort.phase === 'arrived') {
-      mapView.showRoute(restSeg, { isFirst: true, youLabel: '여기', room: ep.room });
-    } else {
-      mapView.showRoute({ draw: ep.draw, via: null }, { isFirst: true, youLabel: '출발', room: ep.room, noWalker: true });
-      if (ep.handoff) mapView.restPath(restSeg);
-    }
-    const loop = () => {
-      if (!mapView || !$('#escort-map')) return;
-      const p = Robot.pose();
-      if (p) mapView.robot(p.x, p.y, p.angle);
-      Escort.raf = requestAnimationFrame(loop);
-    };
-    cancelAnimationFrame(Escort.raf);
-    loop();
-    updateEscortPanel();
-  }
-  function updateEscortPanel() {
-    const s = Robot.status();
-    if (!s.kind || s.kind !== 'escort') return;
-    const set = (id, v) => { const e = document.getElementById(id); if (e && e.textContent !== v) e.textContent = v; };
-    set('esc-remain', RT.fmtMeters(Math.max(0, s.remainingM)));
-    set('esc-eta', fmtMin(s.etaSec));
-    set('esc-next', s.turnDir === 'STOP' ? '곧 도착' : TURN_WORD[s.turnDir] || '-');
-    set('esc-headline', escHeadline(s));
-    set('esc-now', s.turnDir === 'STOP' ? `${Escort.plan.stopName}에서 멈춰요`
-      : s.turnDir ? `${s.turnAtName}에서 ${TURN_WORD[s.turnDir]}으로 돌아요` : '');
-    const bar = document.getElementById('esc-bar');
-    if (bar) bar.style.width = `${Math.round(Math.max(0, Math.min(1, s.progress)) * 100)}%`;
-  }
-  setInterval(() => { if (Escort.phase === 'going' && state.current && state.current.view === 'escort') updateEscortPanel(); }, 300);
-  Robot.on('node', (s) => {
-    if (s.kind !== 'escort' || !Escort.phase) return;
-    if (TURN_WORD[s.turn]) Speech.say(`${TURN_WORD[s.turn]}으로 돌아요.`);
-    updateEscortPanel();
-  });
-  ['pause', 'resume', 'lost'].forEach((ev) => Robot.on(ev, (s) => {
-    if (s.kind !== 'escort' || Escort.phase !== 'going') return;
-    if (ev === 'pause') Speech.say('잠깐 멈출게요.');
-    if (ev === 'resume') Speech.say('다시 갈게요. 따라오세요!');
-    if (ev === 'lost') { miniFace.setMood('sad'); Speech.say('길을 잃었어요. 선생님을 불러 주세요.'); }
-    if (state.current && state.current.view === 'escort') render();
-  }));
-  Robot.on('arrive', () => {
-    if (Escort.phase !== 'going') return;
-    Escort.phase = 'arrived';
-    miniFace.react('happy', 1800);
-    if (appScreen.classList.contains('is-active')) {
-      state.current = { view: 'escort', params: {} };
-      render();
-    }
-    arriveSpeech();
-    armEscortReturn();
-  });
-  Robot.setHome(state.location);
 
   /* ── 관리자 설정 (시계를 3초간 길게 누르기) ── */
   let holdT;
@@ -1026,6 +842,7 @@
         <div class="admin-opts">
           <label class="admin-opt"><span>음성 안내 기본값</span><select id="adm-voice"><option value="1" ${state.voice ? 'selected' : ''}>켜기</option><option value="0" ${!state.voice ? 'selected' : ''}>끄기</option></select></label>
           <label class="admin-opt"><span>얼굴 화면으로 돌아가는 시간</span><select id="adm-idle">${[30, 60, 90, 120, 180, 300].map((s) => `<option value="${s}" ${s === state.idleSec ? 'selected' : ''}>${s}초</option>`).join('')}</select></label>
+          ${hooks.adminExtra ? hooks.adminExtra() : ''}
           <button class="btn" data-adm="fullscreen">${I('grid')}전체 화면</button>
           <button class="btn" data-adm="default">${I('refresh')}기본값으로</button>
           <button class="btn btn-primary" data-adm="save">저장</button>
@@ -1055,11 +872,11 @@
     if (t.dataset.action === 'adm-floor') { showAdminFloor(Number(t.dataset.id)); return; }
     const a = t.dataset.adm;
     if (a === 'close') closeAdmin();
+    if (hooks.onAdmin && a && hooks.onAdmin(a)) { closeAdmin(); return; }
     if (a === 'fullscreen') { const d = document.documentElement; (d.requestFullscreen || d.webkitRequestFullscreen || (() => {})).call(d); }
     if (a === 'default') { store.set({}); location.reload(); }
     if (a === 'save') {
       state.location = pending;
-      Robot.setHome(state.location);
       state.voice = $('#adm-voice').value === '1';
       state.idleSec = Number($('#adm-idle').value);
       store.set({ location: state.location, voice: state.voice, idleSec: state.idleSec });
@@ -1094,5 +911,13 @@
   if (/[?&]start=app/.test(location.search)) { faceScreen.classList.remove('is-active'); appScreen.classList.add('is-active'); goHome(); }
   const deep = new URLSearchParams(location.search).get('to');
   if (deep && D.roomById(deep)) { faceScreen.classList.remove('is-active'); appScreen.classList.add('is-active'); goHome(); startRoute(deep); }
-  window.KIS.app = { go, startRoute, sleep, wake, state };
+  window.KIS.app = {
+    go, back, goHome, render, startRoute, sleep, wake, showApp, state, views, hooks,
+    bubble, caption, clearCaption, say: (t) => Speech.say(t), stopSpeech: () => Speech.stop(),
+    keyboard: Keyboard, faces: { big: bigFace, mini: miniFace }, viewHead, esc, catLabel, qr: QR, legend,
+    isFace: () => faceScreen.classList.contains('is-active'),
+    idleFor: () => Date.now() - lastTouch,
+  };
+  if (window.KIS.Delivery) window.KIS.Delivery.init(window.KIS.app);
+  if (window.KIS.Guide) window.KIS.Guide.init(window.KIS.app);
 })();

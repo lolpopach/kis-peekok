@@ -51,7 +51,7 @@ KIS.MapView = (function () {
       this.floor = D.floorById(fid);
       this.base.textContent = '';
       this.overlay.textContent = '';
-      if (this.robotEl) { this.robotEl.remove(); this.robotEl = null; }
+      this.robotEl = null;
       this.roomEls = {};
       const f = this.floor;
       const b = this.base;
@@ -148,8 +148,27 @@ KIS.MapView = (function () {
     /* ── 강조 · 경로 ── */
     clearOverlay() {
       this.overlay.textContent = '';
+      this.robotEl = null;
       Object.values(this.roomEls || {}).forEach((g) => g.classList.remove('is-target', 'is-picked'));
     }
+
+    // 로봇의 실시간 위치 (배달·호출 화면). 위치가 바뀌면 부드럽게 이동한다.
+    robotDot(x, y) {
+      if (!this.robotEl || !this.robotEl.isConnected) {
+        this.robotEl = el('g', { class: 'map-robot' }, this.overlay);
+        el('circle', { r: 10, class: 'map-robot-halo' }, this.robotEl);
+        el('circle', { r: 5.8, class: 'map-robot-dot' }, this.robotEl);
+        const t = el('text', { y: -9.5, 'text-anchor': 'middle', 'font-size': 5.6, class: 'map-robot-label' }, this.robotEl);
+        t.textContent = '피콕';
+        this.robotEl.style.transition = 'none';
+        this.robotEl.style.transform = `translate(${x}px, ${y}px)`;
+        void this.robotEl.getBoundingClientRect();
+        this.robotEl.style.transition = '';
+      }
+      this.robotEl.style.display = '';
+      this.robotEl.style.transform = `translate(${x}px, ${y}px)`;
+    }
+    hideRobot() { if (this.robotEl) this.robotEl.style.display = 'none'; }
 
     highlight(roomId, cls = 'is-target') {
       const g = this.roomEls[roomId];
@@ -184,11 +203,9 @@ KIS.MapView = (function () {
       el('path', { d, class: 'route-flow' }, this.overlay);
       let len = 0;
       for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
-      if (!ctx.noWalker) { // 데려다주기 화면은 실제 로봇 점이 움직이므로 생략
-        const walker = el('circle', { r: 3.6, class: 'route-walker' }, this.overlay);
-        const am = el('animateMotion', { dur: `${Math.max(2.4, len / 45).toFixed(2)}s`, repeatCount: 'indefinite', path: d, rotate: 'auto' }, walker);
-        am.beginElement && setTimeout(() => { try { am.beginElement(); } catch (e) { /* noop */ } }, 0);
-      }
+      const walker = el('circle', { r: 3.6, class: 'route-walker' }, this.overlay);
+      const am = el('animateMotion', { dur: `${Math.max(2.4, len / 45).toFixed(2)}s`, repeatCount: 'indefinite', path: d, rotate: 'auto' }, walker);
+      am.beginElement && setTimeout(() => { try { am.beginElement(); } catch (e) { /* noop */ } }, 0);
 
       const first = pts[0], last = pts[pts.length - 1];
       if (ctx.isFirst) this.you(first[0], first[1], ctx.youLabel || '현재 위치');
@@ -205,25 +222,6 @@ KIS.MapView = (function () {
         el('circle', { cx: 0, cy: -14, r: 3.4, fill: '#fff' }, inner);
       }
       return { last };
-    }
-
-    // 데려다준 뒤 사람이 혼자 가야 하는 남은 길 (점선)
-    restPath(seg) {
-      const d = seg.draw.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join('');
-      el('path', { d, class: 'route-rest' }, this.overlay);
-      if (seg.via) this.pill(seg.via.x, seg.via.y - 11, `${seg.via.toFloor}층으로 ${seg.via.toFloor > this.floorId ? '▲' : '▼'}`, 'pill-info');
-    }
-
-    // 로봇 위치 (점 + 진행 방향). 처음 한 번 그리고 다음부터는 위치만 옮긴다.
-    // overlay 가 아닌 별도 그룹이라 clearOverlay() 에 지워지지 않는다.
-    robot(x, y, angle = -90) {
-      if (!this.robotEl) {
-        this.robotEl = el('g', { class: 'map-robot' }, this.svg);
-        el('circle', { r: 12, class: 'map-robot-halo' }, this.robotEl);
-        el('circle', { r: 6.6, class: 'map-robot-dot' }, this.robotEl);
-        el('path', { d: 'M11.5 0 5.5 -4.6v9.2z', class: 'map-robot-arrow' }, this.robotEl);
-      }
-      this.robotEl.setAttribute('transform', `translate(${x.toFixed(1)} ${y.toFixed(1)}) rotate(${Math.round(angle)})`);
     }
 
     flash(x, y) {

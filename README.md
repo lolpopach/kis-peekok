@@ -1,100 +1,109 @@
-# 학교 안내 로봇 피콕 (PEEKOK)
+# 학교 안내·배달 로봇 피콕 (PEEKOK)
 
-학교 안내 로봇의 **얼굴(머리 화면)** 에 띄우는 웹 페이지입니다.
-평소에는 화면 전체가 공작새 로봇 **피콕**의 얼굴이고, 사용자가 얼굴을 터치하면 길 찾기 메뉴로 넘어갑니다.
+학교 안내·배달 로봇 **피콕**의 웹 시스템입니다. 주소 하나(**https://kis-peekok.pages.dev**)로 두 가지 화면을 씁니다.
 
-- **얼굴 화면**: 화면 가장자리까지 파란 깃털 머리, 큰 눈과 흰 눈 무늬, 가운데 부리.
-  화면 비율(가로·세로)에 맞춰 얼굴이 꽉 차게 자동으로 맞춰집니다.
-  눈을 깜빡이고, 터치한 쪽을 쳐다보고, 말할 때 부리가 움직이고, 터치하면 웃습니다.
-  기다리는 동안 가끔 자막으로 말을 겁니다("저를 터치하면 길을 안내해 드려요"). `config.js` 의 `faceCaptions` 로 끌 수 있습니다.
-- **길 찾기**(핵심 기능): 2026 시설배치도(1~5층) 기준으로 현재 위치에서 목적지까지의 경로를 지도에 그리고, 단계별 안내 문장과 음성으로 알려 줍니다.
-  - 자주 찾는 곳 바로가기: 화장실(가장 가까운 곳), 보건실, 교무실, 행정실, 도서실, 식당·매점, 체육관, 상담실
-  - 교실 찾기: 유치원 · 1~12학년 · 통합교육
-  - 검색: 화면 한글 키보드, 초성 검색(`ㅂㄱㅅ` → 보건실), `5-1`, `5학년 1반`
-  - 말로 묻기: "도서실 어디예요?" (음성 인식을 지원하는 브라우저만)
-  - 계단 / 엘리베이터(휠체어·유모차) 경로 선택
-  - 층별 안내도: 지도에서 장소를 눌러 바로 안내 (지도는 움직이지 않게 고정)
-  - **휴대폰으로 보기**: 길 안내 화면의 QR 코드를 휴대폰 카메라로 찍으면, 같은 경로의 지도와 단계별 안내가 휴대폰(`m.html`)에 나옵니다.
-- 90초 동안 입력이 없으면 얼굴 화면으로 돌아갑니다.
+| 누가 | 화면 | 주소 |
+| --- | --- | --- |
+| 로봇 태블릿 (로봇 얼굴) | 공작새 얼굴 → 길 안내 · 배달 | `/robot` (등록된 태블릿은 `/` 로 열어도 여기로) |
+| 그 밖의 휴대폰·PC | **피콕 부르기** (배달 호출) | `/` |
+| QR 코드를 찍은 휴대폰 | 길 안내 보기 | `/m?to=…` |
+
+## 로봇 얼굴 (robot.html · 가로 태블릿)
+
+- **얼굴 화면**: 화면 전체가 공작새 얼굴. 깜빡이고, 터치한 쪽을 보고, 말할 때 부리가 움직이고, 터치하면 웃습니다.
+  기다리는 동안 자막으로 말을 걸고, 배달 중에는 "보건실로 배달 가는 중이에요"처럼 하는 일을 말합니다.
+- **길 찾기**: 2026 시설배치도(1~5층) 기준 경로를 고정 지도와 단계별 안내·음성으로 알려 줍니다.
+  자주 찾는 곳, 교실 찾기, 화면 한글 키보드(초성 검색), 말로 묻기, 계단/엘리베이터 선택, 층별 안내도,
+  **QR 코드로 휴대폰에서 보기**.
+- **배달**:
+  1. 휴대폰으로 부르면 (로봇이 비어 있고 아무도 화면을 안 쓸 때) 자동으로 호출을 받고 부른 곳으로 갑니다.
+  2. 도착하면 "보낼 물건을 넣어 주세요" → **받는 곳 고르기**(길 찾기와 같은 메뉴) → **받는 사람·메모·보내는 사람**(화면 키보드) → 출발.
+  3. 받는 곳에 도착하면 받는 사람·메모를 크게 보여 주고, "물건을 꺼냈어요"를 누르면 제자리로 돌아갑니다.
+  4. 로봇 앞에서 바로 보낼 때는 홈 화면의 **배달 보내기**.
+- 90초 동안 입력이 없으면 얼굴 화면으로 돌아갑니다. 관리자 설정: 상단 시계를 3초 길게 누르기.
+
+## 피콕 부르기 (index.html · 휴대폰)
+
+어디로 와 줄지(검색·학년반·자주 가는 곳) 고르고, 보내는 사람·보낼 물건(선택)을 적어 부릅니다.
+접수 → 오는 중 → 물건 싣기 → 배달 중 → 완료를 실시간으로 보여 주고, 로봇 몸체가 위치를 보고하면 **지도에 피콕 위치가 움직입니다**.
+로봇이 오기 전까지는 취소할 수 있습니다. 같은 기기는 한 번에 한 건만, 기다린 지 30분이 지나면 만료됩니다.
+
+## 로봇 태블릿 설정 (처음 한 번)
+
+로봇 태블릿에서 **설정 링크** `https://kis-peekok.pages.dev/robot#key=<로봇 키>` 를 한 번 엽니다.
+그러면 이 기기가 로봇으로 등록되어, 그다음부터는 `/` 로 열어도 로봇 얼굴이 뜨고 배달 기능이 켜집니다.
+(크롬 메뉴 → 홈 화면에 추가 하면 전체 화면 앱으로 열립니다.)
+로봇 키는 Cloudflare Pages 프로젝트의 비밀값 `ROBOT_KEY` 입니다.
+등록된 기기에서 부르기 화면을 보려면 `/?public` 으로 엽니다.
+
+## 로봇 몸체(라인 트레이스) 연결
+
+**[docs/robot-api.md](docs/robot-api.md)** 를 보세요. 길 찾기 그래프의 노드(복도 교차점)를 라인 트레이스 노드로 씁니다.
+로봇은 노드 순서·회전 방향·거리를 받아 달리고, 노드를 지날 때마다 보고하면 화면에 실시간 위치가 보입니다.
+`tools/robot-sim.js` 가 그 과정을 흉내 내는 참고 구현입니다.
 
 ## 폴더 구조
 
 ```
-public/            ← 배포되는 사이트 (빌드 과정 없음)
-  index.html       로봇 얼굴 + 길 찾기 (가로 태블릿)
-  m.html           휴대폰용 길 안내 (QR 코드로 열림)
-  css/style.css    태블릿 화면
-  css/map.css      지도 (태블릿·휴대폰 공용)
-  css/mobile.css   휴대폰 화면
-  js/mobile.js     휴대폰 길 안내
-  js/vendor/qrcode.js  QR 코드 생성 (MIT, qrcode-generator)
-  js/config.js     로봇 이름, 로봇 위치, 대기 시간 등 기본 설정
-  js/data.js       시설배치도 데이터 (방 위치, 복도 그래프)
-  js/router.js     경로 계산과 안내 문장
-  js/search.js     검색 (초성 · 학년반 · 음성 문장)
-  js/hangul.js     화면 키보드용 한글 조합
-  js/face.js       공작새 얼굴
-  js/map.js        층별 지도 그리기
-  js/app.js        화면 흐름
-tools/validate.js  도면 데이터 점검 도구
-tools/cloudflare.sh Cloudflare Pages 확인·배포 상태·프로젝트 생성 도우미
-CLAUDE.md          Claude 작업 지침 (배포 절차 등)
-wrangler.toml      Cloudflare Pages 설정
+public/                  ← 배포되는 화면 (빌드 과정 없음)
+  index.html             피콕 부르기 (휴대폰)          js/call.js · css/call.css
+  robot.html             로봇 얼굴 + 길 찾기 + 배달    js/app.js · js/delivery.js · css/style.css
+  m.html                 휴대폰 길 안내 (QR)          js/mobile.js · css/mobile.css
+  css/map.css            지도 (공용)
+  js/config.js           로봇 이름·위치·속도·대기 시간 등 기본 설정
+  js/data.js             시설배치도 데이터 (방, 복도, 노드·연결)
+  js/router.js           길 찾기, 안내 문장, 로봇 주행 계획(robotPlan)·위치 추정(locate)
+  js/search.js · hangul.js · face.js · map.js · icons.js
+  js/vendor/qrcode.js    QR 코드 (MIT, qrcode-generator)
+functions/api/           ← 서버 (Cloudflare Pages Functions)
+  status.js              GET  /api/status            로봇 상태 (누구나)
+  calls/index.js         POST /api/calls             부르기
+  calls/[id].js          GET  /api/calls/:id?t=      내 호출 상태
+  calls/[id]/cancel.js   POST /api/calls/:id/cancel  취소
+  robot/index.js         GET  /api/robot             로봇 전용 상태 (X-Robot-Key)
+  robot/[action].js      POST /api/robot/:action     로봇 전용 동작
+lib/                     서버 공통 코드
+db/schema.sql            데이터베이스 구조 (Cloudflare D1 kis-peekok)
+docs/robot-api.md        로봇 몸체 연결 안내
+tools/                   validate.js(도면 점검) · api-test.py(API 점검) · robot-sim.js(주행 시뮬레이터) · cloudflare.sh
+wrangler.toml            Cloudflare 설정 (출력 폴더, D1 연결)
 ```
 
 ## 로컬에서 실행
 
-```bash
-cd public && python3 -m http.server 8080
-```
-
-브라우저에서 `http://localhost:8080` 을 엽니다. (`index.html` 파일을 바로 열어도 동작합니다.)
-
-유용한 주소 옵션:
-
-| 주소 | 설명 |
-| --- | --- |
-| `?start=app` | 얼굴 화면을 건너뛰고 메뉴부터 |
-| `?to=f1-보건실` | 해당 장소로 바로 길 안내 |
-| `?at=2,325,754` | 로봇 위치를 `층,x,y` 로 지정 (로봇이 여러 대일 때) |
-| `?debug=1` | 지도 위에 복도 그래프와 출입문 위치 표시 |
-
-## Cloudflare Pages 배포
-
-주소: **https://kis-peekok.pages.dev**
-
-Cloudflare Pages 프로젝트 `kis-peekok` 이 이 GitHub 저장소에 연결되어 있어서, 푸시하면 자동으로 배포됩니다.
-- 운영 브랜치: `main` → `kis-peekok.pages.dev`
-- 다른 브랜치: 브랜치별 미리보기 주소가 따로 만들어집니다.
-- Build command: *(없음)* · Build output directory: `public`
-
-운영 브랜치는 Cloudflare 대시보드 → Workers & Pages → kis-peekok → Settings → Builds 의 Production branch 에서 바꿀 수 있습니다.
-
-**명령어로 직접 배포할 때** (본인 컴퓨터에서)
+서버(배달 API)까지 함께 띄우기:
 
 ```bash
-npx wrangler login
+echo 'ROBOT_KEY=local-test-key' > .dev.vars
 ```
 
 ```bash
-npx wrangler pages deploy
+npx wrangler pages dev public --port 8788
 ```
 
-(`wrangler.toml` 에 프로젝트 이름 `kis-peekok` 과 출력 폴더 `public` 이 들어 있습니다.)
+- 부르기 화면: `http://localhost:8788/`
+- 로봇 화면: `http://localhost:8788/robot#key=local-test-key`
+- API 점검: `python3 tools/api-test.py http://localhost:8788 local-test-key`
+- 주행 시뮬레이터: `node tools/robot-sim.js --base http://localhost:8788 --key local-test-key --fast 10`
+
+길 찾기 화면만 볼 때는 `cd public && python3 -m http.server 8080` 후 `http://localhost:8080/robot.html`.
+
+로봇 화면 주소 옵션: `?start=app`(메뉴부터) · `?to=f1-보건실`(바로 길 안내) · `?at=2,325,754`(로봇 위치) · `?debug=1`(노드·연결 표시)
+
+## 배포 (Cloudflare Pages)
+
+GitHub `main` 브랜치에 푸시하면 자동으로 배포됩니다 (화면 + 서버 함께).
+데이터베이스(D1)와 비밀값(ROBOT_KEY)은 Cloudflare 에 이미 설정되어 있습니다.
 
 ## 로봇 위치 바꾸기
 
-- **화면에서**: 상단 시계를 3초 동안 길게 누르면 관리자 설정이 열립니다. 지도에서 로봇이 서 있는 복도를 누르고 저장하면 그 기기에 저장됩니다. 음성 기본값, 대기 시간, 전체 화면도 여기서 설정합니다.
-- **코드에서**: `public/js/config.js` 의 `robotLocation` 을 바꿉니다.
+- 로봇 화면에서 시계 3초 길게 누르기 → 지도에서 로봇 제자리(복도) 누르기 → 저장. 배달을 마치면 이 자리로 돌아옵니다.
+- 코드에서: `public/js/config.js` 의 `robotLocation`.
 
 ## 도면 데이터 고치기
 
-`public/js/data.js` 에 층마다 방(`rooms`), 복도(`corridors`), 길 찾기용 점(`nodes`)과 연결(`edges`)이 있습니다.
-좌표는 시설배치도 PDF의 좌표(포인트 단위)를 그대로 썼습니다.
-
-- 방 이름·별칭 추가: `aliases: ['양호실', ...]`
-- 출입문이 다른 쪽에 있으면: `doors: [[x, y]]`
-- 고친 뒤 점검:
+`public/js/data.js` 에 층마다 방(`rooms`), 복도(`corridors`), 노드(`nodes`)와 연결(`edges`)이 있습니다. 좌표는 시설배치도 PDF 좌표 그대로입니다.
+실제 바닥 라인에 맞춰 노드를 옮기거나 추가하면 길 찾기와 로봇 주행 계획이 함께 바뀝니다.
 
 ```bash
 node tools/validate.js
@@ -104,10 +113,8 @@ node tools/validate.js
 node tools/validate.js 보건실 5-1 콘서트홀
 ```
 
-첫 번째 명령은 모든 장소에 경로가 있는지, 두 번째는 해당 장소의 안내 문장을 보여 줍니다.
-
 ## 참고
 
-- 도면에 문 위치가 없어서 출입문은 가장 가까운 복도에 붙도록 계산했습니다. 실제와 다른 곳은 `doors` 로 지정해 주세요.
-- 5층은 계단 연결이 도면에서 확실하지 않아, 왼쪽 계단을 4층 중앙 계단과 이었습니다.
-- 음성 안내(TTS)와 음성 인식은 브라우저 기능을 사용합니다. 크롬 계열 브라우저를 권장합니다.
+- 도면에 문 위치가 없어 출입문은 가장 가까운 복도에 붙도록 계산했습니다. 실제와 다르면 `doors` 로 지정하세요.
+- 5층 왼쪽 계단은 4층 중앙 계단과 이어진 것으로 보았습니다. 로봇은 엘리베이터만 쓰므로 5층 대기실로는 배달할 수 없습니다.
+- 음성 안내·인식은 브라우저 기능을 씁니다. 크롬 계열을 권장합니다.
