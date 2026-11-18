@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ko">
+<html lang="ko" data-page="robot">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
@@ -13,6 +13,8 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <title>학교 안내 로봇 피콕</title>
+  <!-- 로봇으로 등록되지 않은 기기는 배달 호출 화면(call.html)으로 보냅니다 -->
+  <script src="js/device.js"></script>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
   <link rel="stylesheet" href="css/style.css">
@@ -32,6 +34,7 @@
       <button class="mini-face" id="mini-face" aria-label="안내 로봇 피콕"></button>
       <div class="bubble" id="bubble" aria-live="polite">어디로 안내해 드릴까요?</div>
       <div class="header-actions">
+        <button class="hdr-btn hdr-calls" id="btn-calls" hidden></button>
         <button class="hdr-btn" id="btn-sound" aria-pressed="true"></button>
         <div class="clock" id="clock" title="관리자: 3초간 길게 누르기"></div>
         <button class="hdr-btn hdr-home" id="btn-home"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11 12 3l9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/></svg><span>처음으로</span></button>
@@ -86,6 +89,9 @@
     <div id="admin" class="admin" hidden></div>
   </section>
 
+  <!-- 3) 배달 호출 알림 (로봇 기기에서만) -->
+  <div id="calls" class="calls-overlay" hidden></div>
+
   <script src="js/config.js"></script>
   <script src="js/data.js"></script>
   <script src="js/icons.js"></script>
@@ -96,5 +102,6 @@
   <script src="js/map.js"></script>
   <script src="js/vendor/qrcode.js"></script>
   <script src="js/app.js"></script>
+  <script src="js/calls.js"></script>
 </body>
 </html>

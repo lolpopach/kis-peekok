@@ -17,12 +17,27 @@
   - **휴대폰으로 보기**: 길 안내 화면의 QR 코드를 휴대폰 카메라로 찍으면, 같은 경로의 지도와 단계별 안내가 휴대폰(`m.html`)에 나옵니다.
 - 90초 동안 입력이 없으면 얼굴 화면으로 돌아갑니다.
 
+## 배달 호출
+
+로봇으로 등록되지 않은 기기(교실 PC, 휴대폰)가 첫 주소(`/`)에 들어오면 **배달 호출 화면**(`call.html`)이 나옵니다.
+장소(층별 목록 · 검색 · 직접 입력)와 요청 내용을 적어 호출하면, 로봇 화면에 알림음·음성과 함께 호출 카드가 뜹니다.
+운영하는 분이 로봇 화면에서 **출발 → 도착 → 완료** 를 누르면 호출한 사람 화면의 상태도 바뀝니다(4초마다 확인).
+로봇 화면의 "길 보기" 는 로봇 위치에서 호출 장소까지 경로를 보여 줍니다.
+
+- **로봇 기기 등록**: 로봇 태블릿에서 `https://kis-peekok.pages.dev/?robot=<로봇키>` 를 한 번 열면 그 기기에 저장됩니다.
+  해제는 `?robot=off` 또는 관리자 설정의 "로봇 등록 해제". 내 컴퓨터 미리보기(localhost)는 로봇으로 봅니다.
+- **서버**: Cloudflare Pages Functions(`functions/api/`) + KV(바인딩 이름 `CALLS`). 호출은 12시간 뒤 자동으로 정리됩니다.
+- **비밀값(선택)**: `ROBOT_KEY` 를 넣으면 호출 목록 보기·상태 바꾸기에 로봇키가 필요합니다(권장).
+  `CALL_PIN` 을 넣으면 호출할 때 학교 코드를 묻습니다.
+- 로컬에서 서버까지 확인: `npx wrangler pages dev public --kv CALLS`
+
 ## 폴더 구조
 
 ```
 public/            ← 배포되는 사이트 (빌드 과정 없음)
   index.html       로봇 얼굴 + 길 찾기 (가로 태블릿)
   m.html           휴대폰용 길 안내 (QR 코드로 열림)
+  call.html        배달 호출 (로봇이 아닌 기기의 첫 화면)
   css/style.css    태블릿 화면
   css/map.css      지도 (태블릿·휴대폰 공용)
   css/mobile.css   휴대폰 화면
@@ -36,6 +51,12 @@ public/            ← 배포되는 사이트 (빌드 과정 없음)
   js/face.js       공작새 얼굴
   js/map.js        층별 지도 그리기
   js/app.js        화면 흐름
+  js/device.js     로봇 기기 구분 (아니면 call.html 로)
+  js/calls.js      로봇 화면의 호출 알림
+  js/call.js       배달 호출 화면
+  css/call.css     배달 호출 화면
+functions/api/     호출 API (Cloudflare Pages Functions)
+lib/calls.js       호출 API 공용 코드
 tools/validate.js  도면 데이터 점검 도구
 tools/cloudflare.sh Cloudflare Pages 확인·배포 상태·프로젝트 생성 도우미
 CLAUDE.md          Claude 작업 지침 (배포 절차 등)

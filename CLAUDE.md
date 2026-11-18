@@ -18,6 +18,10 @@
   QR 주소의 기준은 `js/config.js` 의 `publicUrl`. QR 라이브러리는 `js/vendor/qrcode.js`(MIT, qrcode-generator 1.4.4).
   지도 공통 스타일은 `css/map.css` (태블릿·휴대폰이 같이 씀).
 
+- **배달 호출**: 로봇으로 등록된 기기(`js/device.js`, `?robot=<키>`)만 얼굴 화면을 보고, 다른 기기는 `/` 에서 `call.html` 로 넘어갑니다.
+  호출 화면(`call.html`, `js/call.js`, `css/call.css`)은 세로 휴대폰(390×844) 기준. 로봇 화면 알림은 `js/calls.js`.
+  API 는 `functions/api/`(Pages Functions) + KV 바인딩 `CALLS`. 로컬 확인은 `npx wrangler pages dev public --kv CALLS`.
+
 ## 배포 — Cloudflare Pages (사용자가 정한 고정 절차, 매번 이대로)
 - 주소: https://kis-peekok.pages.dev
 - Pages 프로젝트 `kis-peekok` ← GitHub `lolpopach/kis-peekok` 연결, 운영 브랜치 `main`, 출력 폴더 `public`, 빌드 명령 없음.

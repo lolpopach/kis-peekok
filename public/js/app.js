@@ -520,6 +520,7 @@
     Voice.stop();
     closeAdmin();
     QR.close();
+    if (KIS.Calls) KIS.Calls.hide();
     state.mode = 'stairs';
     state.route = null;
     state.stack = [];
@@ -787,6 +788,8 @@
         <div class="admin-opts">
           <label class="admin-opt"><span>음성 안내 기본값</span><select id="adm-voice"><option value="1" ${state.voice ? 'selected' : ''}>켜기</option><option value="0" ${!state.voice ? 'selected' : ''}>끄기</option></select></label>
           <label class="admin-opt"><span>얼굴 화면으로 돌아가는 시간</span><select id="adm-idle">${[30, 60, 90, 120, 180, 300].map((s) => `<option value="${s}" ${s === state.idleSec ? 'selected' : ''}>${s}초</option>`).join('')}</select></label>
+          <div class="admin-opt admin-dev"><span>배달 호출 알림</span><p>${KIS.Device && KIS.Device.registered ? '이 기기는 <b>로봇</b>으로 등록되어 호출 알림을 받아요.' : '이 기기는 로봇으로 등록되지 않았어요. 주소 끝에 <b>?robot=로봇키</b> 를 붙여 한 번 열면 등록돼요.'}</p>
+            ${KIS.Device && KIS.Device.registered ? `<button class="btn" data-adm="unrobot">${I('close')}로봇 등록 해제</button>` : ''}</div>
           <button class="btn" data-adm="fullscreen">${I('grid')}전체 화면</button>
           <button class="btn" data-adm="default">${I('refresh')}기본값으로</button>
           <button class="btn btn-primary" data-adm="save">저장</button>
@@ -818,6 +821,7 @@
     if (a === 'close') closeAdmin();
     if (a === 'fullscreen') { const d = document.documentElement; (d.requestFullscreen || d.webkitRequestFullscreen || (() => {})).call(d); }
     if (a === 'default') { store.set({}); location.reload(); }
+    if (a === 'unrobot') { KIS.Device.unregister(); location.reload(); }
     if (a === 'save') {
       state.location = pending;
       state.voice = $('#adm-voice').value === '1';
@@ -854,5 +858,10 @@
   if (/[?&]start=app/.test(location.search)) { faceScreen.classList.remove('is-active'); appScreen.classList.add('is-active'); goHome(); }
   const deep = new URLSearchParams(location.search).get('to');
   if (deep && D.roomById(deep)) { faceScreen.classList.remove('is-active'); appScreen.classList.add('is-active'); goHome(); startRoute(deep); }
-  window.KIS.app = { go, startRoute, sleep, wake, state };
+  window.KIS.app = {
+    go, startRoute, sleep, wake, state, resetIdle,
+    say: (t) => Speech.say(t),
+    isAwake: () => appScreen.classList.contains('is-active') || waking,
+    bubble,
+  };
 })();

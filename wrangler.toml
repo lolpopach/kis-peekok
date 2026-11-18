@@ -3,3 +3,9 @@
 name = "kis-peekok"
 pages_build_output_dir = "public"
 compatibility_date = "2026-11-01"
+
+# 배달 호출 저장소 (functions/api/calls). 이 파일이 있으면 Cloudflare 대시보드에서 바인딩을 고칠 수 없으니 여기에 적습니다.
+# KV 네임스페이스를 만든 뒤 id 를 넣고 아래 세 줄의 주석을 풀어 주세요.
+# [[kv_namespaces]]
+# binding = "CALLS"
+# id = "<KV 네임스페이스 id>"
