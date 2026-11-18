@@ -21,13 +21,20 @@ def req(method, path, body=None, robot=False):
     data = json.dumps(body).encode() if body is not None else None
     r = urllib.request.Request(BASE + path, data=data, method=method)
     r.add_header('content-type', 'application/json')
+    r.add_header('user-agent', 'kis-peekok-api-test/1.0')  # 기본 Python-urllib 은 Cloudflare 가 막을 수 있음
     if robot:
         r.add_header('x-robot-key', KEY)
+
+    def parse(raw):
+        try:
+            return json.loads(raw or b'{}')
+        except ValueError:
+            return {'error': raw[:200].decode('utf-8', 'replace')}
     try:
         with urllib.request.urlopen(r) as res:
-            return res.status, json.loads(res.read())
+            return res.status, parse(res.read())
     except urllib.error.HTTPError as e:
-        return e.code, json.loads(e.read() or b'{}')
+        return e.code, parse(e.read())
 
 
 def check(name, cond, extra=''):
