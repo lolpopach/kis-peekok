@@ -51,6 +51,7 @@ KIS.MapView = (function () {
       this.floor = D.floorById(fid);
       this.base.textContent = '';
       this.overlay.textContent = '';
+      this.robotEl = null;
       this.roomEls = {};
       const f = this.floor;
       const b = this.base;
@@ -147,8 +148,27 @@ KIS.MapView = (function () {
     /* ── 강조 · 경로 ── */
     clearOverlay() {
       this.overlay.textContent = '';
+      this.robotEl = null;
       Object.values(this.roomEls || {}).forEach((g) => g.classList.remove('is-target', 'is-picked'));
     }
+
+    // 로봇의 실시간 위치 (배달·호출 화면). 위치가 바뀌면 부드럽게 이동한다.
+    robotDot(x, y) {
+      if (!this.robotEl || !this.robotEl.isConnected) {
+        this.robotEl = el('g', { class: 'map-robot' }, this.overlay);
+        el('circle', { r: 10, class: 'map-robot-halo' }, this.robotEl);
+        el('circle', { r: 5.8, class: 'map-robot-dot' }, this.robotEl);
+        const t = el('text', { y: -9.5, 'text-anchor': 'middle', 'font-size': 5.6, class: 'map-robot-label' }, this.robotEl);
+        t.textContent = '피콕';
+        this.robotEl.style.transition = 'none';
+        this.robotEl.style.transform = `translate(${x}px, ${y}px)`;
+        void this.robotEl.getBoundingClientRect();
+        this.robotEl.style.transition = '';
+      }
+      this.robotEl.style.display = '';
+      this.robotEl.style.transform = `translate(${x}px, ${y}px)`;
+    }
+    hideRobot() { if (this.robotEl) this.robotEl.style.display = 'none'; }
 
     highlight(roomId, cls = 'is-target') {
       const g = this.roomEls[roomId];

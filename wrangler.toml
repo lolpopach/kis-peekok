@@ -1,5 +1,13 @@
-# Cloudflare Pages 설정 — 빌드 과정 없이 public/ 폴더를 그대로 배포합니다.
-#   npx wrangler pages deploy
+# Cloudflare Pages 설정 — 빌드 과정 없이 public/ 폴더를 그대로 배포하고,
+# functions/ 폴더의 서버 코드(배달 API)를 함께 올립니다.
 name = "kis-peekok"
 pages_build_output_dir = "public"
 compatibility_date = "2026-11-01"
+
+# 배달 시스템 데이터베이스 (호출 기록, 로봇 상태)
+[[d1_databases]]
+binding = "DB"
+database_name = "kis-peekok"
+database_id = "b7ab7b35-2533-4e55-88bb-7310f0c392d9"
+
+# 비밀값 ROBOT_KEY 는 Cloudflare 프로젝트 설정(Secrets)에 저장되어 있습니다. 여기 적지 않습니다.

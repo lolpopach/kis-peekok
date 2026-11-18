@@ -3,7 +3,7 @@
   "short_name": "피콕",
   "description": "학교 안내 로봇 피콕의 얼굴 화면과 길 찾기",
   "lang": "ko",
-  "start_url": "./",
+  "start_url": "./robot",
   "scope": "./",
   "display": "fullscreen",
   "display_override": ["fullscreen", "standalone"],

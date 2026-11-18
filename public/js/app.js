@@ -138,6 +138,7 @@
           <div class="search-row">
             <button class="search-box" data-action="search">${I('search')}<span>장소 이름 검색 <em>예) 보건실, 5-1, ㅂㄱㅅ</em></span></button>
             ${SR ? `<button class="mic-btn" data-action="voice">${I('mic')}<span>말로 묻기</span></button>` : ''}
+            ${hooks.homeExtra ? hooks.homeExtra() : ''}
           </div>
         </div>
         <div class="quick-grid">
@@ -346,7 +347,12 @@
       f.setMood('sad');
     }
     if (view === 'home') { miniFace.setMood('idle'); }
+    $('#app-screen').classList.toggle('is-picking', !!state.pick);
+    if (hooks.onRender) hooks.onRender(view, params);
   }
+
+  // 배달 기능(js/delivery.js)이 화면 흐름에 끼어드는 자리
+  const hooks = {};
 
   function mountBrowseMap(p) {
     const f = p.floor || state.location.floor;
@@ -364,7 +370,7 @@
     sh.hidden = false;
     sh.innerHTML = `<div class="sheet-text"><span class="dest-badge cat-${room.cat}"><b>${room.floor}</b>층</span>
       <div><h3>${esc(room.title || room.name)}</h3><p>${esc(catLabel(room))}</p></div></div>
-      <button class="btn btn-primary" data-action="room" data-id="${room.id}">${I('arrive')}여기로 길 안내</button>
+      <button class="btn btn-primary" data-action="room" data-id="${room.id}">${I('arrive')}${state.pick ? '여기로 배달' : '여기로 길 안내'}</button>
       <button class="sheet-close" data-action="sheet-close" aria-label="닫기">${I('close')}</button>`;
   }
 
@@ -394,6 +400,14 @@
 
   /* ── 길 안내 시작 ── */
   function startRoute(target, kind) {
+    // 배달 받는 곳 고르는 중이면 길 안내 대신 그 장소를 넘겨준다
+    if (state.pick) {
+      if (kind) { bubble('배달 받는 곳은 교실이나 장소를 골라 주세요.', false); return; }
+      const pick = state.pick;
+      state.pick = null;
+      pick(target);
+      return;
+    }
     let r;
     if (kind) {
       const pred = kind === 'restroom' ? (x) => x.cat === 'restroom' : (x) => x.cat === 'elev';
@@ -457,11 +471,17 @@
       }
       case 'qr': QR.open(); break;
       case 'sheet-close': $('#room-sheet').hidden = true; mapView.clearOverlay(); if (mapView.floorId === state.location.floor) mapView.you(state.location.x, state.location.y, '현재 위치'); break;
-      default: break;
+      default: if (hooks.onAction) hooks.onAction(a, id, b); break;
     }
   });
 
-  $('#btn-home').addEventListener('click', () => { Speech.stop(); goHome(); bubble('어디로 안내해 드릴까요?', false); });
+  $('#btn-home').addEventListener('click', () => {
+    Speech.stop();
+    if (hooks.onHome && hooks.onHome()) return;
+    state.pick = null;
+    goHome();
+    bubble('어디로 안내해 드릴까요?', false);
+  });
   $('#btn-sound').addEventListener('click', () => {
     state.voice = !state.voice;
     renderSoundBtn();
@@ -497,21 +517,26 @@
     bigFace.talk(false);
   }
 
+  function showApp() {
+    faceScreen.classList.remove('is-active');
+    appScreen.classList.add('is-active');
+    clearCaption();
+    resetIdle();
+  }
   function wake() {
     if (waking) return;
+    // 배달 중이면 배달 화면을 먼저 보여 준다
+    if (hooks.onWake && hooks.onWake()) return;
     waking = true;
     clearTimeout(idleCapT);
     bigFace.react('happy', 1400);
     caption('안녕하세요! 어디로 안내해 드릴까요?', 2000);
     Speech.say(`안녕하세요! 저는 ${iAm}. 어디로 안내해 드릴까요?`);
     setTimeout(() => {
-      faceScreen.classList.remove('is-active');
-      appScreen.classList.add('is-active');
-      clearCaption();
+      showApp();
       $('#bubble').textContent = '어디로 안내해 드릴까요?';
       goHome();
       waking = false;
-      resetIdle();
     }, 1100);
   }
   function sleep() {
@@ -520,6 +545,7 @@
     Voice.stop();
     closeAdmin();
     QR.close();
+    state.pick = null;
     state.mode = 'stairs';
     state.route = null;
     state.stack = [];
@@ -532,8 +558,9 @@
   faceScreen.addEventListener('click', wake);
   faceScreen.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') wake(); });
 
-  let idleT;
+  let idleT, lastTouch = Date.now();
   function resetIdle() {
+    lastTouch = Date.now();
     clearTimeout(idleT);
     if (!appScreen.classList.contains('is-active')) return;
     idleT = setTimeout(sleep, state.idleSec * 1000);
@@ -553,10 +580,12 @@
     if (CFG.faceCaptions === false) return;
     idleCapT = setTimeout(() => {
       if (faceScreen.classList.contains('is-active') && !waking) {
-        caption(idleLines[idleI % idleLines.length]);
-        idleI++;
+        // 배달 중이면 배달 이야기를, 아니면 평소 인사를
+        const mission = hooks.missionLine && hooks.missionLine();
+        if (mission) caption(mission, 6000);
+        else { caption(idleLines[idleI % idleLines.length]); idleI++; }
       }
-      scheduleIdleCaption(11000 + Math.random() * 6000);
+      scheduleIdleCaption(hooks.missionLine && hooks.missionLine() ? 8000 : 11000 + Math.random() * 6000);
     }, ms);
   }
   scheduleIdleCaption(2500);
@@ -578,6 +607,7 @@
     const box = $('#kbd');
     const comp = new KIS.Hangul.Composer();
     let layout = 'ko', shift = false;
+    let input = null; // 글자 입력 모드 { title, onDone, max, chips } — 없으면 장소 검색 모드
     const KO = [['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-'], ['ㅂ', 'ㅈ', 'ㄷ', 'ㄱ', 'ㅅ', 'ㅛ', 'ㅕ', 'ㅑ', 'ㅐ', 'ㅔ'], ['ㅁ', 'ㄴ', 'ㅇ', 'ㄹ', 'ㅎ', 'ㅗ', 'ㅓ', 'ㅏ', 'ㅣ'], ['⇧', 'ㅋ', 'ㅌ', 'ㅊ', 'ㅍ', 'ㅠ', 'ㅜ', 'ㅡ', '⌫']];
     const SHIFT = { ㅂ: 'ㅃ', ㅈ: 'ㅉ', ㄷ: 'ㄸ', ㄱ: 'ㄲ', ㅅ: 'ㅆ', ㅐ: 'ㅒ', ㅔ: 'ㅖ' };
     const EN = [['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-'], ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'], ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'], ['Z', 'X', 'C', 'V', 'B', 'N', 'M', '⌫']];
@@ -594,12 +624,19 @@
         <button class="key key-wide" data-k="lang">${layout === 'ko' ? 'ABC' : '한글'}</button>
         <button class="key key-space" data-k=" ">띄어쓰기</button>
         <button class="key key-wide" data-k="clear">전체 지움</button>
-        <button class="key key-go" data-k="go">${I('search')}검색</button></div>`;
+        <button class="key key-go" data-k="go">${input ? `${I('arrive')}완료` : `${I('search')}검색`}</button></div>`;
     }
     function update() {
-      const v = comp.value();
+      let v = comp.value();
+      if (input && input.max && v.length > input.max) { comp.backspace(); v = comp.value(); }
       $('#kbd-text').textContent = v;
       $('#kbd-placeholder').hidden = !!v;
+      if (input) {
+        $('#kbd-results').innerHTML = (input.chips || []).length
+          ? input.chips.map((c) => `<button class="kbd-hit kbd-chip" data-chip="${esc(c)}"><b>${esc(c)}</b></button>`).join('')
+          : `<p class="kbd-tip">${esc(input.tip || '')}</p>`;
+        return;
+      }
       const res = v.trim() ? S.search(v, { limit: 8 }) : [];
       $('#kbd-results').innerHTML = !v.trim() ? '<p class="kbd-tip">장소 이름의 첫 글자(초성)만 눌러도 찾을 수 있어요. 예) ㅂㄱㅅ → 보건실</p>'
         : res.length ? res.map((x) => (x.special
@@ -608,6 +645,8 @@
           : '<p class="kbd-tip">아직 맞는 장소가 없어요</p>';
     }
     box.addEventListener('click', (e) => {
+      const chip = e.target.closest('[data-chip]');
+      if (chip) { comp.clear(); Array.from(chip.dataset.chip).forEach((ch) => { comp.text += ch; }); update(); return; }
       const hit = e.target.closest('[data-hit]');
       if (hit) { close(); startRoute(hit.dataset.hit); return; }
       const hn = e.target.closest('[data-hit-nearest]');
@@ -622,6 +661,7 @@
       else if (v === 'clear') comp.clear();
       else if (v === 'go') {
         const q = comp.value().trim();
+        if (input) { const done = input.onDone; close(); done(q); return; }
         if (!q) return;
         close();
         const res = S.search(q);
@@ -642,14 +682,18 @@
       else if (e.key === 'Enter') box.querySelector('[data-k="go"]').click();
       else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) { comp.input(e.key.toUpperCase() === e.key.toLowerCase() ? e.key : e.key.toUpperCase()); update(); }
     });
-    function open() {
+    // opts 없이 열면 장소 검색, opts = { title, initial, onDone(text), max, chips, tip } 이면 글자 입력
+    function open(opts) {
+      input = opts || null;
       comp.clear(); layout = 'ko'; shift = false;
+      if (input && input.initial) comp.text = input.initial;
+      $('#kbd-placeholder').textContent = input ? input.title : '장소 이름을 입력하세요';
       keys(); update();
       box.hidden = false;
       requestAnimationFrame(() => box.classList.add('is-open'));
-      bubble('찾는 장소 이름을 눌러 주세요.', false);
+      if (!input) bubble('찾는 장소 이름을 눌러 주세요.', false);
     }
-    function close() { box.classList.remove('is-open'); box.hidden = true; }
+    function close() { box.classList.remove('is-open'); box.hidden = true; input = null; }
     return { open, close };
   })();
 
@@ -787,6 +831,7 @@
         <div class="admin-opts">
           <label class="admin-opt"><span>음성 안내 기본값</span><select id="adm-voice"><option value="1" ${state.voice ? 'selected' : ''}>켜기</option><option value="0" ${!state.voice ? 'selected' : ''}>끄기</option></select></label>
           <label class="admin-opt"><span>얼굴 화면으로 돌아가는 시간</span><select id="adm-idle">${[30, 60, 90, 120, 180, 300].map((s) => `<option value="${s}" ${s === state.idleSec ? 'selected' : ''}>${s}초</option>`).join('')}</select></label>
+          ${hooks.adminExtra ? hooks.adminExtra() : ''}
           <button class="btn" data-adm="fullscreen">${I('grid')}전체 화면</button>
           <button class="btn" data-adm="default">${I('refresh')}기본값으로</button>
           <button class="btn btn-primary" data-adm="save">저장</button>
@@ -816,6 +861,7 @@
     if (t.dataset.action === 'adm-floor') { showAdminFloor(Number(t.dataset.id)); return; }
     const a = t.dataset.adm;
     if (a === 'close') closeAdmin();
+    if (hooks.onAdmin && a && hooks.onAdmin(a)) { closeAdmin(); return; }
     if (a === 'fullscreen') { const d = document.documentElement; (d.requestFullscreen || d.webkitRequestFullscreen || (() => {})).call(d); }
     if (a === 'default') { store.set({}); location.reload(); }
     if (a === 'save') {
@@ -854,5 +900,12 @@
   if (/[?&]start=app/.test(location.search)) { faceScreen.classList.remove('is-active'); appScreen.classList.add('is-active'); goHome(); }
   const deep = new URLSearchParams(location.search).get('to');
   if (deep && D.roomById(deep)) { faceScreen.classList.remove('is-active'); appScreen.classList.add('is-active'); goHome(); startRoute(deep); }
-  window.KIS.app = { go, startRoute, sleep, wake, state };
+  window.KIS.app = {
+    go, back, goHome, render, startRoute, sleep, wake, showApp, state, views, hooks,
+    bubble, caption, clearCaption, say: (t) => Speech.say(t), stopSpeech: () => Speech.stop(),
+    keyboard: Keyboard, faces: { big: bigFace, mini: miniFace }, viewHead, esc, catLabel,
+    isFace: () => faceScreen.classList.contains('is-active'),
+    idleFor: () => Date.now() - lastTouch,
+  };
+  if (window.KIS.Delivery) window.KIS.Delivery.init(window.KIS.app);
 })();
