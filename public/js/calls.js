@@ -20,6 +20,7 @@
   let lastRemind = 0;
   let busy = false;
 
+  const KIND = { deliver: '전달', bring: '가져오기', guide: '길 안내', other: '기타' };
   const LABEL = { waiting: '새 호출', accepted: '가는 중', arrived: '도착' };
   const since = (t) => {
     const m = Math.floor((Date.now() - t) / 60000);
@@ -118,7 +119,7 @@
           return `<article class="call-item st-${c.status}">
             <div class="call-floor">${f ? `<b>${f}</b>층` : I('pin')}</div>
             <div class="call-body">
-              <div class="call-top"><span class="call-st">${LABEL[c.status] || c.status}</span><span class="call-time">${since(c.createdAt)}</span></div>
+              <div class="call-top"><span class="call-st">${LABEL[c.status] || c.status}</span>${KIND[c.kind] ? `<span class="call-kind">${KIND[c.kind]}</span>` : ''}${c.lang === 'en' ? '<span class="call-kind">English</span>' : ''}<span class="call-time">${since(c.createdAt)}</span></div>
               <h3>${esc(placeText(c))}</h3>
               ${c.note ? `<p class="call-note">${esc(c.note)}</p>` : ''}
               ${c.name ? `<p class="call-name">호출한 사람: ${esc(c.name)}</p>` : ''}
