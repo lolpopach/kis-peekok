@@ -724,7 +724,8 @@
     let closeT;
     function routeUrl() {
       const p = state.current.params, r = state.route, L = state.location;
-      const base = new URL('m.html', CFG.publicUrl || location.href).toString();
+      // Cloudflare Pages 는 m.html 을 m 으로 넘겨주므로 공개 주소에서는 바로 m 을 쓴다 (QR 도 짧아짐)
+      const base = (CFG.publicUrl ? new URL('m', CFG.publicUrl) : new URL('m.html', location.href)).toString();
       let q = `to=${encodeURIComponent(r.room.id)}&at=${L.floor},${L.x},${L.y}`;
       if (state.mode !== 'stairs') q += `&mode=${state.mode}`;
       if (p.kind) q += `&k=${p.kind}`;
