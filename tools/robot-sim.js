@@ -14,6 +14,7 @@
  *   4) 마지막 노드(END)에 닿으면 POST /api/robot/arrived
  *
  * --fast 10 이면 10배 빠르게 (시험용). 실제 로봇은 라인 센서가 교차로를 감지할 때 progress 를 보내면 됩니다.
+ * --text 를 붙이면 ESP8266 펌웨어(firmware/peekok-esp8266)와 똑같이 짧은 글자 형식 API 를 씁니다.
  */
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, v, i, arr) => {
   if (v.startsWith('--')) a.push([v.slice(2), arr[i + 1] && !arr[i + 1].startsWith('--') ? arr[i + 1] : true]);
@@ -60,8 +61,69 @@ async function drive(plan, mode, signature) {
   return true;
 }
 
+/* ── --text: ESP8266 펌웨어와 똑같은 방식 (GET /api/robot/drive, POST ...?fmt=text) ── */
+async function textApi(method, path, body) {
+  const res = await fetch(BASE + '/api/robot' + path, {
+    method,
+    headers: { 'content-type': 'application/json', 'x-robot-key': KEY },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const t = await res.text();
+  if (!res.ok) throw new Error(`${res.status} ${t.slice(0, 120)}`);
+  const d = { mode: 'idle', rev: '0', passed: '-', nodes: [] };
+  t.split('\n').forEach((line) => {
+    const [k, ...rest] = line.trim().split(' ');
+    if (k === 'mode') d.mode = rest[0];
+    else if (k === 'rev') d.rev = rest[0];
+    else if (k === 'passed') d.passed = rest[0];
+    else if (rest.length === 4) d.nodes.push({ key: k, action: rest[0], heading: rest[1], next_m: Number(rest[2]), toFloor: Number(rest[3]) });
+  });
+  return d;
+}
+const MOVING = ['to_caller', 'delivering', 'returning'];
+async function driveText(d) {
+  const nodes = d.nodes, rev = d.rev;
+  log(`▶ [ESP 방식] ${d.mode}: 노드 ${nodes.length}개 (rev ${rev})`);
+  for (let i = 0; i < nodes.length - 1; i++) {
+    const n = nodes[i];
+    const r = await textApi('POST', '/progress?fmt=text', { passed: n.key, next: nodes[i + 1].key, speed: SPEED });
+    if (r.rev !== rev || !MOVING.includes(r.mode)) { log('■ 계획이 바뀌어 멈춤'); return false; }
+    log(`  ${n.key.padEnd(7)} ${SAY[n.action] || n.action}${n.heading !== '-' ? ` → ${n.heading}` : ''}${n.toFloor ? ` ${n.toFloor}층` : ''}`);
+    if (n.action === 'elevator') {
+      // 펌웨어처럼: 로봇 화면 '내렸어요'(passed 가 출구로 바뀜) 또는 FLASH 버튼(여기서는 ELEVATOR_S 초 뒤)을 기다림
+      const exit = nodes[i + 1].key, t0 = Date.now();
+      for (;;) {
+        const w = await textApi('GET', '/drive');
+        if (w.rev !== rev) { log('■ 엘리베이터에서 계획이 바뀜'); return false; }
+        if (w.passed === exit) { log(`  (로봇 화면에서 '내렸어요')`); break; }
+        if ((Date.now() - t0) * FAST >= ELEVATOR_S * 1000) { log('  (FLASH 버튼)'); break; }
+        await new Promise((res) => setTimeout(res, 500));
+      }
+      continue;
+    }
+    await sleep(((n.next_m || 0) / SPEED) * 1000);
+  }
+  await textApi('POST', '/arrived?fmt=text', {});
+  log('● 도착');
+  return true;
+}
+async function runText() {
+  let doneRev = null;
+  for (;;) {
+    try {
+      const d = await textApi('GET', '/drive');
+      if (MOVING.includes(d.mode) && d.nodes.length >= 2 && d.rev !== doneRev) {
+        const ok = await driveText(d);
+        if (ok) { doneRev = d.rev; if (ONCE) process.exit(0); }
+      }
+    } catch (e) { log('연결 오류:', e.message); }
+    await new Promise((res) => setTimeout(res, 1000));
+  }
+}
+
 (async () => {
-  log(`피콕 주행 시뮬레이터 — ${BASE}  속도 ${SPEED}m/s × ${FAST}배`);
+  log(`피콕 주행 시뮬레이터 — ${BASE}  속도 ${SPEED}m/s × ${FAST}배${args.text ? '  [ESP8266 방식]' : ''}`);
+  if (args.text) return runText();
   let lastSig = null;
   for (;;) {
     try {

@@ -92,6 +92,17 @@ KIS.Delivery = (function () {
     if (m === 'returning' && !srv.robot.target) setReturnTarget();
     if (m === 'returning') maybeHome();
     maybeAccept();
+    // 엘리베이터 앞에 멈추면 주변 사람에게 도움을 부탁한다 (로봇 몸체가 버튼이나 이 화면의 버튼을 기다림)
+    const ev = elevatorWait();
+    const evKey = ev ? `${srv.robot.progress.passed}@${srv.robot.progress.at}` : null;
+    if (ev && evKey !== last.elevator) {
+      last.elevator = evKey;
+      const msg = `엘리베이터에 태워 주세요! ${ev.toFloor}층에서 내려 주시고, 화면의 버튼을 눌러 주세요`;
+      if (app.isFace()) app.caption(msg, 8000);
+      app.say(`엘리베이터에 태워 주세요. ${ev.toFloor}층에서 내려 주세요.`);
+      if (app.state.current && app.state.current.view === 'mission' && !app.isFace()) app.render();
+    }
+    if (!ev && last.elevator) { last.elevator = null; if (app.state.current && app.state.current.view === 'mission' && !app.isFace()) app.render(); }
     if (app.state.current && ['mission', 'delivery', 'receive'].includes(app.state.current.view) && !app.isFace()) refreshView();
   }
 
@@ -177,6 +188,11 @@ KIS.Delivery = (function () {
       sub = `<button class="btn dl-big" data-action="dl-arrived">${I('home')}제자리에 도착했어요</button>`;
     } else {
       return `<section class="view">${app.viewHead('배달')}<div class="empty"><h2>지금 하는 배달이 없어요</h2></div></section>`;
+    }
+    const ev = elevatorWait();
+    if (ev) {
+      title = `엘리베이터에 태워 주세요 (${ev.toFloor}층)`;
+      sub = `<button class="btn btn-primary dl-big" data-action="dl-elevator-out">${I('elevator')}${ev.toFloor}층에서 내렸어요 · 다시 출발</button>`;
     }
     return `<section class="view view-dl dl-mission">
       <div class="card dl-map-card"><div class="map-host" id="dl-map"></div><p class="dl-live" id="dl-live"></p></div>
@@ -293,10 +309,26 @@ KIS.Delivery = (function () {
     const r = srv && srv.robot;
     const info = $('#dl-live');
     const loc = r && r.target && r.target.plan && r.progress ? RT.locate(r.target.plan, r.progress, now()) : null;
-    if (!loc) { liveMap.hideRobot(); if (info) info.textContent = '로봇 몸체가 연결되면 지도에서 실시간 위치가 보여요'; return; }
+    if (!loc) {
+      liveMap.hideRobot();
+      if (info) info.textContent = r && r.bodyOnline ? '로봇 몸체 연결됨 · 출발을 기다리는 중' : '로봇 몸체(ESP8266)가 연결되면 지도에서 실시간 위치가 보여요';
+      return;
+    }
     if (loc.floor !== liveMap.floorShown) { mountMap(); return; }
     liveMap.robotDot(loc.x, loc.y);
-    if (info) info.textContent = loc.inElevator ? '엘리베이터로 이동 중' : `${nodeName(loc.at)} 지나는 중${loc.next ? ` → ${nodeName(loc.next)}` : ''}`;
+    const ev = elevatorWait();
+    if (info) info.textContent = ev ? `엘리베이터 앞에서 기다리는 중 — ${ev.toFloor}층으로 태워 주세요` : `${nodeName(loc.at)} 지나는 중${loc.next ? ` → ${nodeName(loc.next)}` : ''}`;
+  }
+  // 로봇이 엘리베이터 노드에 멈춰 사람의 도움을 기다리는 중이면 { toFloor, exit, after }
+  function elevatorWait() {
+    const r = srv && srv.robot;
+    const plan = r && r.target && r.target.plan;
+    if (!plan || !r.progress) return null;
+    const i = plan.nodes.findIndex((n) => n.key === r.progress.passed);
+    const n = plan.nodes[i];
+    if (!n || n.action !== 'elevator') return null;
+    const exit = plan.nodes[i + 1], after = plan.nodes[i + 2];
+    return exit ? { toFloor: n.toFloor, exit: exit.key, after: after ? after.key : null } : null;
   }
   function nodeName(k) {
     if (!k) return '';
@@ -333,6 +365,12 @@ KIS.Delivery = (function () {
         break;
       }
       case 'dl-arrived': act('arrived', {}); break;
+      case 'dl-elevator-out': {
+        // 로봇 몸체(ESP8266)는 '지난 노드'가 엘리베이터 출구로 바뀌면 이어서 출발한다
+        const ev = elevatorWait();
+        if (ev) act('progress', { passed: ev.exit, next: ev.after, speed: srv.robot.progress && srv.robot.progress.speed });
+        break;
+      }
       case 'dl-next':
       case 'dl-pick':
         draft.step = 'dest';
@@ -407,6 +445,8 @@ KIS.Delivery = (function () {
     };
     h.missionLine = () => {
       const m = mode(), c = call();
+      const ev = elevatorWait();
+      if (ev) return `엘리베이터에 태워 주세요! ${ev.toFloor}층에서 내려 주시고, 화면을 눌러 주세요`;
       if (m === 'to_caller' && c) return `${label(c.from_room, c.from_label)}에서 불러서 가고 있어요`;
       if (m === 'loading') return '보낼 물건을 넣어 주세요! 화면을 눌러 주세요';
       if (m === 'delivering' && c) return `${RT.josa(label(c.to_room, c.to_label), '으로/로')} 배달 가는 중이에요`;
@@ -416,6 +456,7 @@ KIS.Delivery = (function () {
     };
     h.homeExtra = () => (['idle', 'returning'].includes(mode()) ? `<button class="deliver-btn" data-action="dl-walkup">${I('box')}<span>배달 보내기</span></button>` : '');
     h.adminExtra = () => `<div class="admin-dl"><b>배달 연결</b><span class="${online ? 'is-ok' : 'is-bad'}">${online ? '연결됨' : online === false ? '연결 안 됨' : '확인 중'}</span>
+      <b>로봇 몸체(ESP8266)</b><span class="${srv && srv.robot.bodyOnline ? 'is-ok' : 'is-bad'}">${srv && srv.robot.bodyOnline ? '연결됨' : '연결 안 됨'}</span>
       <small>로봇 상태: ${mode()}${srv && srv.queue ? ` · 기다리는 호출 ${srv.queue.length}건` : ''}</small>
       <button class="btn" data-adm="dl-reset">${I('refresh')}배달 초기화</button></div>`;
     h.onAdmin = (a) => {
