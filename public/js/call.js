@@ -1,9 +1,11 @@
-/* 피콕 부르기 (index.html) — 휴대폰·PC 누구나
- *  1) 어디로 와 줄지 고르기 → 2) 부르기 → 3) 진행 상황 보기(대기·오는 중·도착·배달 중·완료) / 취소
- *  로봇이 도착하면 물건 싣기·받는 곳·받는 사람·메모는 로봇 화면에서 한다.
+/* 피콕 부르기 (index.html) — 휴대폰 우선, 한국어 / English
+ *  부르기: 1) 부를 곳 → 2) 보낼 물건 → 3) 확인 후 부르기
+ *  진행 상황: 접수 → 오는 중 → 물건 싣기 → 배달 중 → 완료 (3초마다 확인) + 피콕 실시간 위치
+ *  로봇이 도착하면 받는 곳·받는 사람·메모는 로봇 화면에서 고른다.
  */
 (function () {
-  const CFG = KIS.CONFIG, D = KIS.DATA, RT = KIS.Router, S = KIS.Search, I = KIS.icon;
+  const CFG = KIS.CONFIG, D = KIS.DATA, RT = KIS.Router, S = KIS.Search, I = KIS.icon, L = KIS.I18N;
+  const t = (k) => L.t(k);
   const $ = (s, r = document) => r.querySelector(s);
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const main = $('#c-main');
@@ -14,121 +16,196 @@
   let client = store.get('kis-client');
   if (!client) { client = Math.random().toString(36).slice(2) + Date.now().toString(36); store.set('kis-client', client); }
 
-  KIS.createFace($('#c-avatar'), { mini: true });
-
-  const form = { place: null, caller: store.get('kis-caller-name') || '', note: '', q: '' };
-  let active = store.get('kis-call');   // { id, token }
-  let last = null, skew = 0, pollT = null, mapView = null, mapFloor = null, liveT = null;
-
-  const nameOf = (r) => (r ? RT.displayName(r) : '');
+  const callable = D.rooms().filter((r) => r.searchable && !['restroom', 'elev'].includes(r.cat));
+  const GROUPS = [['class', 'classroom'], ['office', 'office'], ['special', 'flask'], ['facility', 'star']];
+  const KINDS = [['docs', 'book'], ['item', 'box'], ['food', 'coffee'], ['other', 'chat']];
+  const KIND_KO = { docs: '서류', item: '물건', food: '간식·음료', other: '' };
+  const nameOf = (r) => (r ? L.roomName(r) : '');
   const reachable = (r) => !!RT.robotPlan(CFG.robotLocation, r);
+  const sortRooms = (a, b) => (a.group === 'class' && b.group === 'class' ? a.grade - b.grade || a.klass - b.klass : nameOf(a).localeCompare(nameOf(b), L.lang, { numeric: true }));
+
+  const form = { step: 1, floor: 1, place: null, q: '', kind: '', note: '', caller: store.get('kis-caller-name') || '' };
+  let active = store.get('kis-call');   // { id, token }
+  let last = null, skew = 0, pollT = null, mapView = null, mapFloor = null, liveT = null, robotNow = null, errMsg = '', cancelArm = false;
 
   async function api(method, path, body) {
     const res = await fetch(path, { method, cache: 'no-store', headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) { const e = new Error(data.error || `서버 응답 ${res.status}`); e.status = res.status; throw e; }
+    if (!res.ok) { const e = new Error(L.lang === 'ko' && data.error ? data.error : t('netFail')); e.status = res.status; throw e; }
     return data;
   }
 
-  /* ── 로봇 상태 표시 (위쪽) ── */
-  const MODE = { idle: '쉬는 중', to_caller: '호출 받고 이동 중', loading: '물건 싣는 중', delivering: '배달 중', at_recipient: '배달 도착', returning: '돌아가는 중' };
+  /* ── 머리글: 언어 · 로봇 상태 · 얼굴 · 단계 ── */
+  function statusChip() {
+    const r = robotNow;
+    if (!r) return `<span class="c-status"><i></i>${esc(t('checking'))}</span>`;
+    if (r.error) return `<span class="c-status is-off"><i></i>${esc(t('noConn'))}</span>`;
+    const cls = r.online ? (r.mode === 'idle' ? 'is-free' : 'is-busy') : 'is-off';
+    const txt = r.online ? `${t('mode')[r.mode] || r.mode}${r.waiting ? t('waitingN')(r.waiting) : ''}` : t('robotOff');
+    return `<span class="c-status ${cls}"><i></i>${esc(txt)}</span>`;
+  }
+  function renderTop(head, st) {
+    const top = $('#c-top');
+    top.className = `c-top${st ? ` st-${st}` : ''}`;
+    top.innerHTML = `
+      <div class="c-bar">
+        <div class="c-brand"><b>${esc(t('appTitle'))}</b><span id="c-chip">${statusChip()}</span></div>
+        <button class="c-lang" type="button" data-act="lang" aria-label="${esc(t('langLabel'))}">${I('chat')}${esc(t('langBtn'))}</button>
+      </div>
+      <div class="c-hero">
+        <div class="c-face" id="c-face"></div>
+        <div class="c-hero-text"><h1>${esc(head[0])}</h1><p>${esc(head[1])}</p></div>
+      </div>
+      ${st ? '' : `<ol class="c-stepper">${[t('stepWhere'), t('stepWhat'), t('stepCheck')].map((s, i) => `<li class="${i + 1 < form.step ? 'is-done' : i + 1 === form.step ? 'is-now' : ''}"><span>${i + 1 < form.step ? I('check') : i + 1}</span>${esc(s)}</li>`).join('')}</ol>`}`;
+    const face = KIS.createFace($('#c-face'), { mini: true });
+    if (st) face.setMood(st === 'delivered' || st === 'loading' ? 'happy' : ['canceled', 'expired'].includes(st) ? 'sad' : 'idle');
+    document.title = t('appTitle');
+  }
+  function paintChip() { const c = $('#c-chip'); if (c) c.innerHTML = statusChip(); }
+
   async function refreshStatus() {
     try {
       const s = await api('GET', '/api/status');
-      const el = $('#c-status');
-      el.className = `c-status ${s.robot.online ? (s.robot.mode === 'idle' ? 'is-free' : 'is-busy') : 'is-off'}`;
-      el.querySelector('em').textContent = s.robot.online ? `${MODE[s.robot.mode] || s.robot.mode}${s.waiting ? ` · 대기 ${s.waiting}건` : ''}` : '로봇 꺼짐';
-    } catch (e) { $('#c-status em').textContent = '연결 안 됨'; }
+      robotNow = Object.assign({}, s.robot, { waiting: s.waiting });
+    } catch (e) { robotNow = { error: true }; }
+    if (!active) paintChip();
   }
 
-  /* ── 1) 부르기 화면 ── */
-  const QUICK = ['교무실 (초)', '교무실 (중등)', '행정실1', '보건실', '도서실', '교장실', '교감실·교무실 (기획·과정·연구)'];
-  function renderForm(msg) {
+  /* ───────── 1) 부르기 ───────── */
+  const picked = () => (form.place ? D.roomById(form.place) : null);
+
+  function renderForm() {
     stopLive();
-    const p = form.place ? D.roomById(form.place) : null;
-    const grades = [['', '학년'], ...[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((g) => [g, `${g}학년`])];
-    main.innerHTML = `
-      <section class="c-card c-intro">
-        <h1>피콕에게 배달을 맡겨 보세요</h1>
-        <ol class="c-how">
-          <li><b>1</b>여기서 피콕을 불러요</li>
-          <li><b>2</b>피콕이 오면 물건을 넣어요</li>
-          <li><b>3</b>로봇 화면에서 받는 곳과 받는 사람을 골라요</li>
-        </ol>
-      </section>
-      <section class="c-card">
-        <h2>${I('pin')}어디로 와 줄까요?</h2>
-        ${p ? `<div class="c-picked">
-            <span class="c-badge cat-${p.cat}"><b>${p.floor}</b>층</span>
-            <div><b>${esc(nameOf(p))}</b><small>${reachable(p) ? '피콕이 갈 수 있어요' : '<em>피콕이 갈 수 없는 곳이에요 (엘리베이터로 못 감)</em>'}</small></div>
-            <button class="c-btn c-btn-ghost" data-act="unpick">바꾸기</button>
-          </div>` : `
-          <div class="c-search">
-            ${I('search')}<input id="c-q" type="search" inputmode="search" autocomplete="off" enterkeyhint="search" placeholder="교실·장소 이름 (예: 5-1, 보건실)" value="${esc(form.q)}">
-          </div>
-          <div id="c-results" class="c-results"></div>
-          <div class="c-class">
-            <select id="c-grade" aria-label="학년">${grades.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select>
-            <select id="c-klass" aria-label="반" disabled><option value="">반</option></select>
-          </div>
-          <div class="c-chips">${QUICK.map((n) => D.rooms().find((r) => r.name === n)).filter(Boolean).map((r) => `<button class="c-chip cat-${r.cat}" data-act="pick" data-id="${r.id}">${esc(nameOf(r))}</button>`).join('')}</div>`}
-      </section>
-      <section class="c-card">
-        <h2>${I('chat')}더 알려 주세요 <small>(선택)</small></h2>
-        <label class="c-field"><span>보내는 사람</span><input id="c-caller" maxlength="30" autocomplete="name" placeholder="예: 김민지 (5-1)" value="${esc(form.caller)}"></label>
-        <label class="c-field"><span>보낼 물건</span><input id="c-note" maxlength="80" placeholder="예: 출석부, 보건 서류" value="${esc(form.note)}"></label>
-      </section>
-      ${msg ? `<p class="c-error">${esc(msg)}</p>` : ''}
-      <button class="c-btn c-btn-main" data-act="call" ${p && reachable(p) ? '' : 'disabled'}>${I('box')}피콕 부르기</button>`;
-    const q = $('#c-q');
-    if (q) {
-      q.addEventListener('input', () => { form.q = q.value; renderResults(); });
-      renderResults();
-      const gs = $('#c-grade'), ks = $('#c-klass');
-      gs.addEventListener('change', () => {
-        const g = Number(gs.value);
-        const list = D.rooms().filter((r) => r.group === 'class' && r.grade === g).sort((a, b) => a.klass - b.klass);
-        ks.innerHTML = `<option value="">반</option>${list.map((r) => `<option value="${r.id}">${r.klass}반 · ${r.floor}층</option>`).join('')}`;
-        ks.disabled = !list.length;
-      });
-      ks.addEventListener('change', () => { if (ks.value) pick(ks.value); });
-    }
-    ['c-caller', 'c-note'].forEach((id) => {
-      const el = $(`#${id}`);
-      el.addEventListener('input', () => { form[id === 'c-caller' ? 'caller' : 'note'] = el.value; });
-    });
+    renderTop([t('heroHi'), t('heroText')], null);
+    const body = form.step === 1 ? stepWhere() : form.step === 2 ? stepWhat() : stepCheck();
+    const p = picked();
+    const canNext = form.step !== 1 || (p && reachable(p));
+    main.innerHTML = `${body}
+      ${errMsg ? `<p class="c-error" role="alert">${esc(errMsg)}</p>` : ''}
+      <div class="c-actions">
+        ${form.step > 1 ? `<button class="c-btn c-btn-ghost" type="button" data-act="prev">${I('back')}${esc(t('back'))}</button>` : ''}
+        ${form.step < 3
+          ? `<button class="c-btn c-btn-main" type="button" data-act="next" ${canNext ? '' : 'disabled'}>${esc(t('next'))}${I('chevron')}</button>`
+          : `<button class="c-btn c-btn-main c-btn-send" type="button" data-act="call">${I('box')}${esc(t('send'))}</button>`}
+      </div>`;
+    errMsg = '';
+    if (form.step === 1) renderRooms();
   }
-  function renderResults() {
-    const box = $('#c-results');
-    if (!box) return;
-    const res = form.q.trim() ? S.search(form.q).filter((x) => x.room).slice(0, 6) : [];
-    box.innerHTML = res.map((x) => `<button class="c-result cat-${x.room.cat}" data-act="pick" data-id="${x.room.id}">
-      <span class="c-badge"><b>${x.room.floor}</b>층</span><b>${esc(nameOf(x.room))}</b><small>${esc(D.catNames[x.room.cat] || '')}</small></button>`).join('')
-      || (form.q.trim() ? '<p class="c-hint">맞는 장소가 없어요. 다른 이름으로 찾아보세요.</p>' : '');
-  }
-  function pick(id) { form.place = id; form.q = ''; renderForm(); }
 
-  async function doCall() {
-    const p = D.roomById(form.place);
-    if (!p) return;
-    const btn = main.querySelector('[data-act="call"]');
+  function placeCard(changeAct, showReach) {
+    const r = picked();
+    if (!r) return '';
+    const ok = reachable(r);
+    return `<div class="c-place">
+      <span class="c-badge cat-${r.cat}"><b>${r.floor}</b><small>${esc(t('floorShort'))}</small></span>
+      <div><b>${esc(nameOf(r))}</b>${showReach ? `<span class="${ok ? 'is-ok' : 'is-no'}">${I(ok ? 'check' : 'close')}${esc(ok ? t('reachable') : t('unreachable'))}</span>` : `<span>${esc(t('floor')(r.floor))}</span>`}</div>
+      ${changeAct ? `<button type="button" class="c-chip-btn" data-act="${changeAct}">${esc(t('change'))}</button>` : ''}
+    </div>`;
+  }
+
+  function stepWhere() {
+    const recent = (store.get('kis-call-recent') || []).map((id) => D.roomById(id)).filter(Boolean).slice(0, 4);
+    return `<section class="c-card">
+      <ol class="c-how">${t('how').map((h, i) => `<li><b>${i + 1}</b>${esc(h)}</li>`).join('')}</ol>
+    </section>
+    <section class="c-card">
+      <header class="c-head"><h2>${esc(t('whereTitle'))}</h2><p>${esc(t('whereSub'))}</p></header>
+      ${picked() ? placeCard('unpick', true) : `
+      <label class="c-search">${I('search')}<input id="c-q" type="search" placeholder="${esc(t('searchPh'))}" autocomplete="off" enterkeyhint="search" value="${esc(form.q)}"></label>
+      ${recent.length ? `<div class="c-recent"><span>${esc(t('recent'))}</span><div>${recent.map((r) => `<button type="button" data-room="${esc(r.id)}">${I('star')}${esc(nameOf(r))}</button>`).join('')}</div></div>` : ''}
+      <div class="c-floors" id="c-floors">${D.floors.map((f) => `<button type="button" data-floor="${f.id}"><b>${f.id}</b>${esc(t('floorShort'))}</button>`).join('')}</div>
+      <div class="c-rooms" id="c-rooms"></div>`}
+    </section>`;
+  }
+
+  const roomBtn = (r, showFloor) => `<button type="button" class="c-room cat-${r.cat}${reachable(r) ? '' : ' is-no'}" data-room="${esc(r.id)}">
+    <i></i><span>${esc(nameOf(r))}</span>${showFloor ? `<small>${esc(t('floor')(r.floor))}</small>` : ''}</button>`;
+
+  function renderRooms() {
+    const host = $('#c-rooms');
+    if (!host) return;
+    const q = form.q.trim();
+    document.querySelectorAll('#c-floors button').forEach((b) => b.classList.toggle('is-on', !q && Number(b.dataset.floor) === form.floor));
+    if (q) {
+      const ql = q.toLowerCase();
+      const hits = S.search(q, { limit: 30 }).filter((h) => h.room && callable.includes(h.room)).map((h) => h.room);
+      callable.forEach((r) => { if (!hits.includes(r) && L.enName(r).toLowerCase().includes(ql)) hits.push(r); });
+      host.innerHTML = hits.length ? `<div class="c-list">${hits.slice(0, 30).map((r) => roomBtn(r, true)).join('')}</div>` : `<p class="c-none">${esc(t('noRooms'))}</p>`;
+      return;
+    }
+    const rooms = callable.filter((r) => r.floor === form.floor);
+    host.innerHTML = GROUPS.map(([g, icon]) => {
+      const rs = rooms.filter((r) => r.group === g).sort(sortRooms);
+      if (!rs.length) return '';
+      return `<div class="c-group"><h3>${I(icon)}${esc(t('groups')[g])}<span>${rs.length}</span></h3>
+        <div class="c-list ${g === 'class' && rs.every((r) => r.grade > 0) ? 'is-class' : ''}">${rs.map((r) => roomBtn(r, false)).join('')}</div></div>`;
+    }).join('');
+  }
+
+  function stepWhat() {
+    return `<section class="c-card">
+      <header class="c-head"><h2>${esc(t('whatTitle'))}</h2><p>${esc(t('whatSub'))}</p></header>
+      <div class="c-kinds">${KINDS.map(([k, icon]) => {
+        const [title, sub] = t('kinds')[k];
+        return `<button type="button" class="c-kind ${form.kind === k ? 'is-on' : ''}" data-kind="${k}" aria-pressed="${form.kind === k}">
+          <span class="c-kind-ico">${I(icon)}</span><b>${esc(title)}</b><small>${esc(sub)}</small><i class="c-kind-check">${I('check')}</i></button>`;
+      }).join('')}</div>
+      <input id="c-note" class="c-input" maxlength="70" placeholder="${esc(t('notePh'))}" value="${esc(form.note)}">
+    </section>`;
+  }
+
+  function stepCheck() {
+    const kind = form.kind ? t('kinds')[form.kind][0] : '';
+    return `<section class="c-card">
+      <header class="c-head"><h2>${esc(t('checkTitle'))}</h2><p>${esc(t('checkSub'))}</p></header>
+      <dl class="c-sum">
+        <div><dt>${esc(t('to'))}</dt><dd>${placeCard('edit1', false)}</dd></div>
+        ${kind || form.note ? `<div><dt>${esc(t('request'))}</dt><dd class="c-req">
+          <div>${kind ? `<span class="c-tag">${esc(kind)}</span>` : ''}${form.note ? `<p>${esc(form.note)}</p>` : ''}</div>
+          <button type="button" class="c-chip-btn" data-act="edit2">${esc(t('change'))}</button></dd></div>` : ''}
+      </dl>
+      <label class="c-field"><span>${esc(t('name'))}</span>
+        <input id="c-caller" class="c-input" maxlength="30" placeholder="${esc(t('namePh'))}" value="${esc(form.caller)}" autocomplete="name"></label>
+    </section>`;
+  }
+
+  function go(step) { form.step = step; renderForm(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+
+  main.addEventListener('input', (e) => {
+    const id = e.target.id;
+    if (id === 'c-q') { form.q = e.target.value; renderRooms(); }
+    if (id === 'c-note') form.note = e.target.value;
+    if (id === 'c-caller') form.caller = e.target.value;
+  });
+  main.addEventListener('keydown', (e) => {
+    if (e.target.id === 'c-q' && e.key === 'Enter') { const first = main.querySelector('#c-rooms [data-room]'); if (first) first.click(); else e.target.blur(); }
+  });
+
+  async function doCall(btn) {
+    const p = picked();
+    if (!p || !reachable(p)) { errMsg = t('needPlace'); go(1); return; }
     btn.disabled = true;
-    btn.textContent = '부르는 중…';
+    btn.innerHTML = `<i class="c-spin"></i>${esc(t('sending'))}`;
+    const kindKo = KIND_KO[form.kind] || '';
+    const note = [kindKo, form.note.trim()].filter(Boolean).join(' · ').slice(0, 80);
     try {
-      store.set('kis-caller-name', form.caller || '');
-      const r = await api('POST', '/api/calls', { from_room: p.id, from_label: nameOf(p), caller: form.caller, note: form.note, client });
+      store.set('kis-caller-name', form.caller.trim());
+      const r = await api('POST', '/api/calls', { from_room: p.id, from_label: RT.displayName(p), caller: form.caller.trim(), note, client });
       active = { id: r.id, token: r.token };
       store.set('kis-call', active);
+      store.set('kis-call-recent', [p.id, ...(store.get('kis-call-recent') || []).filter((x) => x !== p.id)].slice(0, 6));
       last = null;
+      window.scrollTo(0, 0);
       poll();
     } catch (e) {
-      renderForm(e.message);
+      errMsg = e.message;
+      renderForm();
     }
   }
 
-  /* ── 2) 진행 상황 ── */
-  const STEPS = [['waiting', '접수'], ['coming', '오는 중'], ['loading', '물건 싣기'], ['delivering', '배달 중'], ['delivered', '완료']];
+  /* ───────── 2) 진행 상황 ───────── */
   const stepIndex = (s) => ({ waiting: 0, coming: 1, loading: 2, delivering: 3, at_recipient: 3, delivered: 4 }[s] ?? 0);
+  const STEP_ICON = ['bell', 'delivery', 'box', 'map', 'check'];
 
   async function poll() {
     clearTimeout(pollT);
@@ -136,78 +213,100 @@
     try {
       const r = await api('GET', `/api/calls/${active.id}?t=${encodeURIComponent(active.token)}`);
       skew = (r.now || Date.now()) - Date.now();
-      const changed = !last || last.call.status !== r.call.status;
-      if (changed && last && r.call.status === 'loading' && navigator.vibrate) navigator.vibrate([200, 100, 200]);
+      robotNow = r.robot;
+      const changed = !last || last.call.status !== r.call.status || last.ahead !== r.ahead;
+      if (last && last.call.status !== r.call.status && navigator.vibrate) navigator.vibrate(r.call.status === 'loading' ? [200, 100, 200] : [120]);
       last = r;
+      const net = $('#c-net'); if (net) net.hidden = true;
       renderStatus(changed);
-      const done = ['delivered', 'canceled', 'expired'].includes(r.call.status);
-      if (!done) pollT = setTimeout(poll, 3000);
+      if (!['delivered', 'canceled', 'expired'].includes(r.call.status)) pollT = setTimeout(poll, 3000);
     } catch (e) {
       if (e.status === 404) { active = null; store.set('kis-call', null); renderForm(); return; }
+      const net = $('#c-net'); if (net) { net.hidden = false; net.textContent = t('offline'); }
       pollT = setTimeout(poll, 5000);
     }
   }
 
   function renderStatus(rebuild) {
     const { call: c, ahead, robot } = last;
-    const chip = $('#c-status');
-    chip.className = `c-status ${robot.online ? (robot.mode === 'idle' ? 'is-free' : 'is-busy') : 'is-off'}`;
-    chip.querySelector('em').textContent = robot.online ? (MODE[robot.mode] || robot.mode) : '로봇 꺼짐';
     const st = c.status;
-    const from = esc(c.from_label || nameOf(D.roomById(c.from_room)));
-    const to = esc(c.to_label || (c.to_room ? nameOf(D.roomById(c.to_room)) : ''));
-    const head = {
-      waiting: [`${ahead ? `앞에 ${ahead}건이 기다리고 있어요` : '곧 피콕이 출발해요'}`, robot.online ? (robot.busy ? '피콕이 다른 배달을 하고 있어요. 차례가 되면 바로 갈게요.' : '피콕이 호출을 확인하고 있어요.') : '피콕 화면이 꺼져 있어요. 켜지면 바로 갈게요.'],
-      coming: ['피콕이 가고 있어요!', `${RT.josa(from, '으로/로')} 가는 중이에요. 조금만 기다려 주세요.`],
-      loading: ['피콕이 도착했어요!', '로봇에 물건을 넣고, 로봇 화면에서 받는 곳과 받는 사람을 골라 주세요.'],
-      delivering: ['배달 중이에요', `${RT.josa(to, '으로/로')} 가고 있어요.`],
-      at_recipient: ['받는 곳에 도착했어요', `${to}에서 물건을 꺼내 가길 기다리고 있어요.`],
-      delivered: ['배달 완료!', `${to}에 ${c.recipient ? `${esc(/님$/.test(c.recipient) ? c.recipient : `${c.recipient}님`)}께 ` : ''}잘 전했어요. 고마워요!`],
-      canceled: ['호출이 취소됐어요', '다시 부를 수 있어요.'],
-      expired: ['호출이 만료됐어요', '30분 동안 피콕이 오지 못했어요. 다시 불러 주세요.'],
-    }[st] || ['', ''];
-    const ended = ['delivered', 'canceled', 'expired'].includes(st);
-    const showMap = robot.mine && robot.target && robot.target.plan && ['coming', 'delivering'].includes(st);
-    if (!rebuild && $('#c-state') && $('#c-state').dataset.st === st) { updateLive(); return; }
+    if (!rebuild && $('#c-state') && $('#c-state').dataset.st === st) { paintChip(); updateLive(); return; }
     stopLive();
+    const fromRoom = D.roomById(c.from_room), toRoom = c.to_room ? D.roomById(c.to_room) : null;
+    const from = fromRoom ? nameOf(fromRoom) : c.from_label || '';
+    const to = toRoom ? nameOf(toRoom) : c.to_label || '';
+    const fn = t('st')[st] || t('st').waiting;
+    const head = fn({ ahead, online: robot.online, busy: robot.busy, from, to, recipient: c.recipient ? c.recipient.replace(/님$/, '') : '' });
+    renderTop(head, st);
+    const ended = ['delivered', 'canceled', 'expired'].includes(st);
+    const idx = stepIndex(st);
+    const showMap = robot.mine && robot.target && robot.target.plan && ['coming', 'delivering'].includes(st);
+    const row = (icon, label, val) => (val ? `<div><dt>${I(icon)}${esc(label)}</dt><dd>${esc(val)}</dd></div>` : '');
     main.innerHTML = `
-      <section class="c-card c-state st-${st}" id="c-state" data-st="${st}">
-        <div class="c-state-face" id="c-face"></div>
-        <h1>${head[0]}</h1>
-        <p>${head[1]}</p>
-        ${!['canceled', 'expired'].includes(st) ? `<ol class="c-progress">${STEPS.map(([k, t], i) => `<li class="${i < stepIndex(st) || st === 'delivered' ? 'is-done' : i === stepIndex(st) ? 'is-on' : ''}"><i></i><span>${t}</span></li>`).join('')}</ol>` : ''}
+      ${['canceled', 'expired'].includes(st) ? '' : `<section class="c-card c-track" id="c-state" data-st="${st}">
+        <div class="c-progress"><i style="width:${[10, 32, 55, 78, 100][idx]}%"></i></div>
+        <ol class="c-timeline">${t('steps').map((s, i) => {
+          const done = i < idx || st === 'delivered';
+          return `<li class="${done ? 'is-done' : i === idx ? 'is-now' : ''}"><span class="c-dot">${I(done ? 'check' : STEP_ICON[i])}</span><b>${esc(s)}</b></li>`;
+        }).join('')}</ol>
+        ${ended ? '' : `<p class="c-live-note"><i></i>${esc(t('liveNote'))}</p>`}
+      </section>`}
+      ${showMap ? `<section class="c-card c-route">
+        <header class="c-route-head"><h2>${I('pin')}${esc(t('liveTitle'))}</h2><span id="c-live-text"></span></header>
+        <div class="c-map" id="c-map"></div></section>` : ''}
+      <section class="c-card" ${['canceled', 'expired'].includes(st) ? `id="c-state" data-st="${st}"` : ''}>
+        ${fromRoom ? `<div class="c-place">
+          <span class="c-badge cat-${fromRoom.cat}"><b>${fromRoom.floor}</b><small>${esc(t('floorShort'))}</small></span>
+          <div><b>${esc(from)}</b><span>${esc(t('calledAt')(new Date(c.created_at || Date.now()).toLocaleTimeString(L.lang === 'ko' ? 'ko-KR' : 'en-US', { hour: 'numeric', minute: '2-digit' })))}</span></div>
+        </div>` : ''}
+        <dl class="c-detail">
+          ${row('phone', t('d').caller, c.caller)}
+          ${row('box', t('d').note, noteText(c.caller_note))}
+          ${row('arrive', t('d').to, to ? `${to}${c.recipient ? ` · ${c.recipient}` : ''}` : '')}
+          ${row('chat', t('d').memo, c.memo)}
+        </dl>
       </section>
-      ${showMap ? `<section class="c-card c-live"><h2>${I('pin')}피콕 위치 <small id="c-live-text"></small></h2><div class="c-map" id="c-map"></div></section>` : ''}
-      <section class="c-card c-detail">
-        <p>${I('pin')}부른 곳 <b>${from}</b></p>
-        ${c.caller ? `<p>${I('phone')}보내는 사람 <b>${esc(c.caller)}</b></p>` : ''}
-        ${c.caller_note ? `<p>${I('chat')}보낼 물건 <b>${esc(c.caller_note)}</b></p>` : ''}
-        ${c.to_room ? `<p>${I('arrive')}받는 곳 <b>${to}</b>${c.recipient ? ` · ${esc(c.recipient)}` : ''}</p>` : ''}
-        ${c.memo ? `<p>${I('chat')}메모 <b>${esc(c.memo)}</b></p>` : ''}
-      </section>
-      ${['waiting', 'coming'].includes(st) ? '<button class="c-btn c-btn-ghost c-btn-wide" data-act="cancel">호출 취소</button>' : ''}
-      ${ended ? '<button class="c-btn c-btn-main" data-act="again">새로 부르기</button>' : ''}`;
-    const face = KIS.createFace($('#c-face'), { mini: true });
-    face.setMood(st === 'delivered' || st === 'loading' ? 'happy' : ['canceled', 'expired'].includes(st) ? 'sad' : 'idle');
+      <p class="c-error" id="c-net" hidden></p>
+      <div class="c-actions is-static">
+        ${['waiting', 'coming'].includes(st) ? `<button class="c-btn c-btn-danger ${cancelArm ? 'is-armed' : ''}" data-act="cancel" type="button">${I('close')}${esc(cancelArm ? t('cancelAsk') : t('cancel'))}</button>` : ''}
+        ${ended ? `<button class="c-btn c-btn-main" data-act="again" type="button">${I('box')}${esc(t('again'))}</button>` : ''}
+      </div>`;
     if (showMap) mountLive();
+  }
+
+  // 보낼 물건 앞의 종류(서류·물건·간식·음료)는 지금 언어로 바꿔 보여 준다
+  function noteText(n) {
+    if (!n) return '';
+    for (const [k, ko] of Object.entries(KIND_KO)) {
+      if (ko && (n === ko || n.startsWith(`${ko} · `))) return [t('kinds')[k][0], n.slice(ko.length + 3)].filter(Boolean).join(' · ');
+    }
+    return n;
   }
 
   /* 피콕 실시간 위치 (로봇 몸체가 노드 통과를 보고할 때) */
   function mountLive() {
-    const t = last.robot.target;
-    const loc = last.robot.progress ? RT.locate(t.plan, last.robot.progress, Date.now() + skew) : null;
-    const floor = loc ? loc.floor : t.floor;
+    const tg = last.robot.target;
+    const loc = last.robot.progress ? RT.locate(tg.plan, last.robot.progress, Date.now() + skew) : null;
+    const floor = loc ? loc.floor : tg.floor;
     mapView = new KIS.MapView($('#c-map'), {});
     mapView.setFloor(floor);
     mapFloor = floor;
-    const pts = t.plan.nodes.filter((n) => n.floor === floor);
-    const room = t.room ? D.roomById(t.room) : null;
+    const pts = tg.plan.nodes.filter((n) => n.floor === floor);
+    const room = tg.room ? D.roomById(tg.room) : null;
     if (pts.length) {
       const seg = { floor, draw: pts.map((n) => [n.x, n.y]), via: null };
       if (seg.draw.length === 1) seg.draw.push(seg.draw[0]);
-      mapView.showRoute(seg, { isFirst: t.plan.nodes[0].floor === floor, room, youLabel: '출발' });
+      const startsHere = tg.plan.nodes[0].floor === floor;
+      const fi = tg.plan.nodes.findIndex((n) => n.floor === floor);
+      const prev = fi > 0 ? tg.plan.nodes[fi - 1].floor : tg.plan.nodes[0].floor;
+      mapView.showRoute(seg, { isFirst: true, room, youLabel: startsHere ? t('liveStart') : t('fromFloor')(prev) });
       const all = pts.map((n) => [n.x, n.y]);
-      if (room && room.floor === floor) room.rects.forEach((rc) => all.push([rc[0], rc[1]], [rc[2], rc[3]]));
+      if (room && room.floor === floor) {
+        room.rects.forEach((rc) => all.push([rc[0], rc[1]], [rc[2], rc[3]]));
+        const ctr = RT.roomCenter(room);
+        mapView.pill(ctr[0], ctr[1] - 27, nameOf(room), 'pill-go');
+        all.push([ctr[0], ctr[1] - 34]);
+      }
       requestAnimationFrame(() => mapView && mapView.fit(all, 30, 220));
     }
     updateLive();
@@ -217,36 +316,69 @@
     if (!mapView || !last || !last.robot.target) return;
     const loc = last.robot.progress ? RT.locate(last.robot.target.plan, last.robot.progress, Date.now() + skew) : null;
     const txt = $('#c-live-text');
-    if (!loc) { mapView.hideRobot(); if (txt) txt.textContent = '· 출발 준비 중'; return; }
+    if (!loc) { mapView.hideRobot(); if (txt) txt.textContent = t('liveReady'); return; }
     if (loc.floor !== mapFloor) { stopLive(); mountLive(); return; }
     mapView.robotDot(loc.x, loc.y);
-    if (txt) txt.textContent = loc.inElevator ? '· 엘리베이터로 이동 중' : `· ${loc.floor}층에서 이동 중`;
+    if (txt) txt.textContent = loc.inElevator ? t('liveElev') : t('liveMove')(loc.floor);
   }
   function stopLive() { clearInterval(liveT); liveT = null; mapView = null; }
 
   /* ── 버튼 ── */
-  main.addEventListener('click', async (e) => {
-    const b = e.target.closest('[data-act]');
+  document.addEventListener('click', async (e) => {
+    const b = e.target.closest('button');
     if (!b) return;
-    const a = b.dataset.act;
-    if (a === 'pick') pick(b.dataset.id);
-    if (a === 'unpick') { form.place = null; renderForm(); }
-    if (a === 'call') doCall();
-    if (a === 'cancel') {
-      if (!window.confirm('호출을 취소할까요?')) return;
-      try { await api('POST', `/api/calls/${active.id}/cancel?t=${encodeURIComponent(active.token)}`); } catch (err) { window.alert(err.message); }
-      poll();
+    const d = b.dataset;
+    if (d.floor) { form.floor = Number(d.floor); form.q = ''; const qi = $('#c-q'); if (qi) qi.value = ''; renderRooms(); return; }
+    if (d.room) {
+      const r = D.roomById(d.room);
+      form.place = d.room; form.q = '';
+      if (reachable(r)) go(2); else renderForm();
+      return;
     }
-    if (a === 'again') { active = null; last = null; store.set('kis-call', null); form.note = ''; renderForm(); }
-  });
-  main.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && e.target.id === 'c-q') {
-      const first = main.querySelector('#c-results [data-act="pick"]');
-      if (first) first.click();
+    if (d.kind) {
+      form.kind = form.kind === d.kind ? '' : d.kind;
+      document.querySelectorAll('.c-kind').forEach((k) => { const on = k.dataset.kind === form.kind; k.classList.toggle('is-on', on); k.setAttribute('aria-pressed', on); });
+      if (form.kind === 'other') $('#c-note').focus();
+      return;
+    }
+    switch (d.act) {
+      case 'lang':
+        L.set(L.lang === 'ko' ? 'en' : 'ko');
+        $('#c-foot').textContent = t('footer');
+        if (active && last) renderStatus(true); else renderForm();
+        break;
+      case 'unpick': form.place = null; renderForm(); break;
+      case 'edit1': form.place = null; go(1); break;
+      case 'edit2': go(2); break;
+      case 'prev': go(form.step - 1); break;
+      case 'next': if (form.step === 1 && !(picked() && reachable(picked()))) { errMsg = t('needPlace'); renderForm(); } else go(form.step + 1); break;
+      case 'call': doCall(b); break;
+      case 'cancel':
+        if (!cancelArm) { cancelArm = true; renderStatus(true); setTimeout(() => { if (cancelArm) { cancelArm = false; if (last) renderStatus(true); } }, 4000); break; }
+        cancelArm = false;
+        b.disabled = true;
+        try { await api('POST', `/api/calls/${active.id}/cancel?t=${encodeURIComponent(active.token)}`); } catch (err) {
+          const net = $('#c-net'); if (net) { net.hidden = false; net.textContent = err.message; }
+        }
+        poll();
+        break;
+      case 'again':
+        active = null; last = null; store.set('kis-call', null);
+        Object.assign(form, { step: 1, place: null, q: '', kind: '', note: '' });
+        refreshStatus(); renderForm(); window.scrollTo(0, 0);
+        break;
+      default:
     }
   });
 
-  refreshStatus();
-  setInterval(refreshStatus, 10000);
-  if (active) poll(); else renderForm();
+  /* ── 시작 ── */
+  L.set(L.lang);
+  $('#c-foot').textContent = t('footer');
+  refreshStatus().then(() => { if (!active) paintChip(); });
+  setInterval(() => { if (!active) refreshStatus(); }, 10000);
+  if (active) {
+    renderTop([t('loading'), ''], 'waiting');
+    main.innerHTML = `<section class="c-card c-empty"><i class="c-spin"></i><p>${esc(t('loading'))}</p></section>`;
+    poll();
+  } else renderForm();
 })();

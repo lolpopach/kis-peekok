@@ -8,6 +8,7 @@
 - `public/robot.html` (`/robot`): 로봇 태블릿 = 로봇 얼굴 + 길 찾기 + 배달. 설정 링크 `/robot#key=<ROBOT_KEY>` 로 한 번 열면
   기기가 로봇으로 등록(localStorage `kis-robot-device`, `kis-robot-key`)되고, 그 뒤로는 `/` 도 로봇 화면으로 넘어간다.
 - `public/index.html` (`/`): 그 밖의 사람 = 피콕 부르기(배달 호출, 휴대폰 우선). `/?public` 은 로봇 기기에서도 부르기 화면.
+  화면 코드 `js/call.js`·`css/call.css`, 한국어/영어 문구와 장소 이름 영어 번역은 `js/i18n.js`(`?lang=en`, 휴대폰 언어가 한국어가 아니면 영어).
 - `public/m.html` (`/m`): QR 로 여는 휴대폰 길 안내.
 
 ## 배달 시스템
