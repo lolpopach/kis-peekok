@@ -394,8 +394,14 @@
     // 지도는 고정: 층 전체가 한눈에 보이게 (확대·이동 없음)
     mapView.showRoute(seg, { isFirst: i === 0, prevFloor: i > 0 ? r.segments[i - 1].floor : null, room: r.room });
     // 지금 보고 있는 층의 안내 단계가 보이도록
+    // 단계 목록 안에서만 스크롤한다 (휴대폰 가로처럼 패널 전체가 스크롤될 때 목적지·안내 방식이 위로 밀려나지 않게)
     const cur = document.querySelector('.step.is-cur');
-    if (cur) cur.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    const list = cur && cur.closest('.steps');
+    if (list && list.scrollHeight > list.clientHeight + 1) {
+      const top = cur.getBoundingClientRect().top - list.getBoundingClientRect().top;
+      const bottom = top + cur.offsetHeight;
+      if (top < 0 || bottom > list.clientHeight) list.scrollTo({ top: list.scrollTop + top - 8, behavior: 'smooth' });
+    }
   }
 
   /* ── 길 안내 시작 ── */
@@ -499,6 +505,7 @@
     const b = $('#btn-sound');
     b.innerHTML = I(state.voice ? 'sound' : 'mute') + `<span>${state.voice ? '소리 켬' : '소리 끔'}</span>`;
     b.setAttribute('aria-pressed', String(state.voice));
+    b.setAttribute('aria-label', state.voice ? '소리 켬' : '소리 끔'); // 휴대폰 가로에서는 글자를 숨기고 아이콘만
   }
   renderSoundBtn();
   $('#mini-face').addEventListener('click', () => { miniFace.react('happy'); Speech.say(`저는 ${iAm}. 무엇이든 물어보세요!`); });
