@@ -80,7 +80,7 @@ async function textApi(method, path, body) {
   });
   return d;
 }
-const MOVING = ['to_caller', 'delivering', 'returning'];
+const MOVING = ['to_caller', 'delivering', 'guiding', 'returning'];
 async function driveText(d) {
   const nodes = d.nodes, rev = d.rev;
   log(`▶ [ESP 방식] ${d.mode}: 노드 ${nodes.length}개 (rev ${rev})`);
@@ -131,7 +131,7 @@ async function runText() {
       const r = s.robot;
       const plan = r.target && r.target.plan;
       const sig = JSON.stringify(plan);
-      if (['to_caller', 'delivering', 'returning'].includes(r.mode) && plan && sig !== lastSig) {
+      if (['to_caller', 'delivering', 'guiding', 'returning'].includes(r.mode) && plan && sig !== lastSig) {
         lastSig = sig;
         const ok = await drive(plan, r.mode, sig);
         if (ok && ONCE) process.exit(0);

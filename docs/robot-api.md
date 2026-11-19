@@ -65,6 +65,8 @@ X-Robot-Key: <로봇 키>
 | `delivering` | 받는 곳으로 가는 중 | `target.plan` 을 따라 주행 → 끝나면 `arrived` |
 | `at_recipient` | 받는 곳 도착, 꺼내 가길 기다림 | 멈춤 |
 | `returning` | 제자리로 돌아가는 중 | `target.plan` 을 따라 주행 → 끝나면 `arrived` |
+| `guiding` | 길 안내: 사람을 목적지까지 데려다주는 중 (뒤에 사람이 따라옴) | `target.plan` 을 따라 주행 → 끝나면 `arrived` |
+| `guided` | 길 안내 목적지 도착, 사람에게 마지막 안내 중 | 멈춤 (곧 `returning` 으로 바뀜) |
 
 `target.plan` 이 바뀌면(취소, 새 목적지) 하던 주행을 멈추고 새 계획을 따릅니다.
 
@@ -99,6 +101,7 @@ X-Robot-Key: <로봇 키>
 
 - `to_caller` → `loading` : 태블릿에 "물건을 넣어 주세요" 화면이 뜹니다.
 - `delivering` → `at_recipient` : 태블릿에 받는 사람·메모 화면이 뜹니다.
+- `guiding` → `guided` : 태블릿에 "도착했어요" 화면이 뜨고, 잠시 뒤(또는 "고마워요") `returning` 으로 바뀝니다.
 - `returning` → `idle`
 
 로봇 몸체가 아직 연결되지 않았을 때는 태블릿의 "제가 불렀어요 / 제가 받는 사람이에요 / 제자리에 도착했어요" 버튼이 같은 일을 합니다.
@@ -148,11 +151,12 @@ end
 | --- | --- | --- |
 | `accept` | `{ id, target }` | 기다리는 호출 받기 (태블릿이 자동으로 함) |
 | `walkup` | `{ from_room, from_label }` | 로봇 앞에서 바로 배달 시작 |
+| `guide` | `{ to_room, to_label, target }` | 길 안내: 목적지까지 데려다주기 (태블릿이 함) |
 | `depart` | `{ to_room, to_label, recipient, memo, caller, target }` | 물건 싣고 출발 |
 | `delivered` | `{}` | 받는 사람이 꺼내 감 → 제자리로 |
 | `target` | `{ target }` | 지금 목적지만 바꾸기 |
 | `position` | `{ floor, x, y, label }` | 로봇 위치 직접 지정 |
-| `cancel` | `{}` | 지금 배달 취소 → 제자리로 |
+| `cancel` | `{}` | 지금 배달·길 안내 취소(마치기) → 제자리로 |
 | `reset` | `{}` | 대기 상태로 초기화 |
 
 응답은 모두 `GET /api/robot` 과 같은 모양입니다.

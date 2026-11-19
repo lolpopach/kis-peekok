@@ -21,6 +21,8 @@
   교차로에서는 서버가 준 action(경로 모양 기준)을 따르고, 방향(N/E/S/W)은 출발할 때 몸 돌리기에만 쓴다(대각선 구간 때문).
   펌웨어 점검: 이 환경에서는 arduino-cli 를 받을 수 없어, `bash firmware/peekok-esp8266/test/run.sh`
   (호스트 g++ + Arduino 흉내 헤더로 컴파일하고 서버 driveText 응답으로 논리 시험) 를 쓴다. 실제 ESP8266 컴파일은 사용자 Arduino IDE 에서.
+- 길 안내 방식 두 가지(`public/js/guide.js`): 길 안내 화면에서 "데려다주세요"(로봇이 문 앞까지 앞장섬, 로봇 상태 guiding → guided → returning)
+  또는 "QR로 받을게요"(휴대폰 길 안내). 데려다주기도 배달과 같은 주행 계획·위치 추정·로봇 API 를 쓴다.
 - D1: `kis-peekok` (id 는 wrangler.toml), 구조 `db/schema.sql` (서버가 처음 요청 때 `CREATE TABLE IF NOT EXISTS` 로 만들기도 함).
   열을 추가할 때는 D1 API 로 `ALTER TABLE` 을 직접 실행한다.
 - 비밀값 `ROBOT_KEY`: Pages 프로젝트 비밀값(운영·미리보기). 값을 저장소·채팅에 남기지 않는다. 로컬은 `.dev.vars`(gitignore).

@@ -39,7 +39,7 @@ KIS.I18N = (function () {
       send: '피콕 부르기', sending: '부르는 중…',
       needPlace: '먼저 피콕이 갈 장소를 골라 주세요.',
       netFail: '부르지 못했어요. 인터넷 연결을 확인해 주세요.',
-      mode: { idle: '쉬는 중', to_caller: '호출 받고 이동 중', loading: '물건 싣는 중', delivering: '배달 중', at_recipient: '배달 도착', returning: '돌아가는 중' },
+      mode: { idle: '쉬는 중', to_caller: '호출 받고 이동 중', loading: '물건 싣는 중', delivering: '배달 중', at_recipient: '배달 도착', returning: '돌아가는 중', guiding: '길 안내 중', guided: '길 안내 중' },
       waitingN: (n) => ` · 대기 ${n}건`, robotOff: '로봇 꺼짐', checking: '확인 중', noConn: '연결 안 됨',
       st: {
         waiting: (x) => [x.ahead ? `앞에 ${x.ahead}건이 기다리고 있어요` : '곧 피콕이 출발해요',
@@ -94,7 +94,7 @@ KIS.I18N = (function () {
       send: 'Call PEEKOK', sending: 'Calling…',
       needPlace: 'Please choose a place first.',
       netFail: 'Could not send the call. Please check your connection.',
-      mode: { idle: 'Available', to_caller: 'On a call', loading: 'Loading', delivering: 'Delivering', at_recipient: 'At drop-off', returning: 'Heading back' },
+      mode: { idle: 'Available', to_caller: 'On a call', loading: 'Loading', delivering: 'Delivering', at_recipient: 'At drop-off', returning: 'Heading back', guiding: 'Guiding someone', guided: 'Guiding someone' },
       waitingN: (n) => ` · ${n} waiting`, robotOff: 'Robot offline', checking: 'Checking', noConn: 'No connection',
       st: {
         waiting: (x) => [x.ahead ? `${x.ahead} call${x.ahead > 1 ? 's' : ''} ahead of you` : 'PEEKOK will leave soon',

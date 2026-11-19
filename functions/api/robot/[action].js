@@ -2,15 +2,17 @@
  *
  *  accept    { id, target }            기다리는 호출을 맡고 부른 곳으로 출발      idle|returning → to_caller
  *  walkup    { from_room, from_label, caller? }  로봇 앞에서 바로 배달 시작      idle|returning → loading
+ *  guide     { to_room, to_label, target }  길 안내: 사람을 목적지까지 데려다주기   idle|returning → guiding
  *  arrived   { position? }             지금 목적지에 도착                       to_caller → loading
  *                                                                             delivering → at_recipient
+ *                                                                             guiding → guided
  *                                                                             returning → idle
  *  depart    { to_room, to_label, recipient?, memo?, caller?, target }  물건 싣고 출발   loading → delivering
  *  delivered {}                        받는 사람이 받음                          at_recipient|delivering → returning
  *  target    { target }                지금 모드의 목적지 경로만 바꾸기 (예: 돌아갈 경로)
  *  progress  { passed, next, speed? }  라인 트레이스: 노드를 지날 때마다 보고
  *  position  { floor, x, y, label? }   로봇 위치를 직접 지정 (관리자)
- *  cancel    { reason? }               지금 호출 취소 → 제자리로
+ *  cancel    { reason? }               지금 호출 취소 → 제자리로 (데려다주기를 마칠 때도)
  *  reset     {}                        로봇을 대기 상태로 초기화 (관리자)
  *
  *  target = { room, label, floor, x, y, plan }  — plan 은 라인 트레이스용 노드 경로 (js/router.js 의 robotPlan)
@@ -23,7 +25,7 @@ import {
 } from '../../../lib/shared.js';
 import { robotState } from '../../../lib/robot.js';
 
-const MISSION = ['to_caller', 'loading', 'delivering', 'at_recipient'];
+const MISSION = ['to_caller', 'loading', 'delivering', 'at_recipient', 'guiding', 'guided'];
 
 function need(robot, modes, what) {
   if (!modes.includes(robot.mode)) throw new HttpError(409, `지금 로봇 상태(${robot.mode})에서는 ${what}을(를) 할 수 없어요`);
@@ -50,6 +52,13 @@ const actions = {
     await setRobot(db, { mode: 'loading', call_id: id, target: null, progress: null });
   },
 
+  // 데려다주기: 호출 기록 없이 로봇만 목적지로. 도착하면 guided, 마치면 cancel 로 제자리에
+  async guide(db, b, robot) {
+    need(robot, ['idle', 'returning'], '길 안내');
+    if (!b.target || !b.target.plan) throw new HttpError(400, '목적지 경로(target.plan)가 필요해요');
+    await setRobot(db, { mode: 'guiding', call_id: null, target: jsonField(b.target), progress: null });
+  },
+
   async arrived(db, b, robot, t) {
     const pos = b.position ? jsonField(b.position, 2000) : jsonField(endOf(robot.target), 2000);
     if (robot.mode === 'to_caller') {
@@ -58,6 +67,8 @@ const actions = {
     } else if (robot.mode === 'delivering') {
       await db.prepare("UPDATE calls SET status = 'at_recipient', arrived_at = ?, updated_at = ? WHERE id = ?").bind(t, t, robot.callId).run();
       await setRobot(db, { mode: 'at_recipient', position: pos, progress: null });
+    } else if (robot.mode === 'guiding') {
+      await setRobot(db, { mode: 'guided', position: pos, progress: null });
     } else if (robot.mode === 'returning') {
       await setRobot(db, { mode: 'idle', call_id: null, target: null, position: pos, progress: null });
     } else {

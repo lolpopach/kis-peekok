@@ -2,7 +2,7 @@
  *
  * 하는 일
  *   1) WiFi 로 https://<SERVER_HOST>/api/robot/drive 를 읽어 지금 모드와 주행 계획(노드 목록)을 받는다.
- *   2) 모드가 to_caller · delivering · returning 이면 계획대로 검정 라인을 따라 달린다.
+ *   2) 모드가 to_caller · delivering · guiding · returning 이면 계획대로 검정 라인을 따라 달린다.
  *        - 교차로(노드)를 만나면 멈추고 /api/robot/progress 로 "이 노드를 지나 다음 노드로" 보고
  *        - 계획의 방향(N·E·S·W)과 지금 방향을 비교해 직진·좌회전·우회전·유턴
  *        - 엘리베이터 노드: 멈춰서 기다림 → FLASH 버튼 또는 로봇 화면의 "내렸어요" 버튼으로 다시 출발
@@ -392,7 +392,7 @@ void loop() {
       if (millis() - lastPoll > POLL_IDLE_MS) {
         lastPoll = millis();
         if (pollDrive()) {
-          bool moving = serverMode == "to_caller" || serverMode == "delivering" || serverMode == "returning";
+          bool moving = serverMode == "to_caller" || serverMode == "delivering" || serverMode == "guiding" || serverMode == "returning";
           if (moving && planLen >= 2 && planRev != doneRev) {
             if (state == ST_ERROR) Serial.println("[다시 시도] 새 계획");
             beginPlan();
@@ -405,7 +405,7 @@ void loop() {
       String revBefore = planRev;
       followStep();
       // 노드 보고 응답에서 계획이 바뀌었거나(취소·새 목적지) 모드가 바뀌면 멈추고 다시 판단
-      bool moving = serverMode == "to_caller" || serverMode == "delivering" || serverMode == "returning";
+      bool moving = serverMode == "to_caller" || serverMode == "delivering" || serverMode == "guiding" || serverMode == "returning";
       if (state == ST_FOLLOW && (planRev != revBefore || !moving)) {
         stopMotors();
         Serial.println("[계획 바뀜] 멈추고 다시 판단");

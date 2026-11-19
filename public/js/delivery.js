@@ -133,9 +133,11 @@ KIS.Delivery = (function () {
       if (!first) app.say(`배달 왔어요! ${c.recipient ? `${honor(c.recipient)}, ` : ''}물건을 꺼내 가세요.`);
     } else if (m === 'returning' && !first) {
       app.sleep();
-      app.caption('배달을 마쳤어요. 제자리로 돌아갈게요', 5000);
+      app.caption(['guiding', 'guided'].includes(prev) ? '안내를 마쳤어요. 제자리로 돌아갈게요' : '배달을 마쳤어요. 제자리로 돌아갈게요', 5000);
     }
+    listeners.forEach((fn) => fn(prev, m));
   }
+  const listeners = [];
 
   // 사람이 로봇 화면을 쓰고 있지 않을 때만 다음 호출을 받는다
   function maybeAccept() {
@@ -467,5 +469,9 @@ KIS.Delivery = (function () {
     poll();
   }
 
-  return { init, enabled: () => !!key, state: () => srv };
+  // 데려다주기(js/guide.js)도 같은 로봇 상태·주행 계획을 쓴다
+  return {
+    init, enabled: () => !!key, state: () => srv, act, currentPos, now, onMode: (fn) => listeners.push(fn),
+    drawPlan, nodeName, elevatorWait,
+  };
 })();
