@@ -15,7 +15,12 @@
 - 흐름: 휴대폰 호출(waiting) → 로봇 자동 수락(coming, 화면을 아무도 안 쓸 때만) → 도착(loading) → 받는 곳·받는 사람·메모 → 출발(delivering)
   → 도착(at_recipient) → 받았어요(delivered) → 로봇 제자리(returning → idle). 로봇 화면 쪽은 `public/js/delivery.js`.
 - 서버 API 와 로봇 몸체(라인 트레이스) 연결 규약: `docs/robot-api.md`. 노드 = `data.js` 의 nodes, 주행 계획 = `Router.robotPlan`,
-  위치 추정 = `Router.locate`(노드 통과 보고 + 등속도). 로봇은 엘리베이터만 쓴다.
+  위치 추정 = `Router.locate`(노드 통과 보고 + 등속도). 로봇은 엘리베이터만 쓴다(사람이 태워 주고 FLASH 버튼/화면 "내렸어요").
+- **로봇 몸체는 ESP8266**(사용자 결정). 펌웨어 `firmware/peekok-esp8266/` (Arduino, 추가 라이브러리 없음, `config.h` 는 gitignore).
+  ESP8266 은 글자 형식 API(`GET /api/robot/drive`, POST `?fmt=text`, `lib/shared.js` 의 `driveText`)를 쓴다 — 형식을 바꾸면 펌웨어도 같이 바꾼다.
+  교차로에서는 서버가 준 action(경로 모양 기준)을 따르고, 방향(N/E/S/W)은 출발할 때 몸 돌리기에만 쓴다(대각선 구간 때문).
+  펌웨어 점검: 이 환경에서는 arduino-cli 를 받을 수 없어, `bash firmware/peekok-esp8266/test/run.sh`
+  (호스트 g++ + Arduino 흉내 헤더로 컴파일하고 서버 driveText 응답으로 논리 시험) 를 쓴다. 실제 ESP8266 컴파일은 사용자 Arduino IDE 에서.
 - 길 안내 방식 두 가지(`public/js/guide.js`): 길 안내 화면에서 "데려다주세요"(로봇이 문 앞까지 앞장섬, 로봇 상태 guiding → guided → returning)
   또는 "QR로 받을게요"(휴대폰 길 안내). 데려다주기도 배달과 같은 주행 계획·위치 추정·로봇 API 를 쓴다.
 - D1: `kis-peekok` (id 는 wrangler.toml), 구조 `db/schema.sql` (서버가 처음 요청 때 `CREATE TABLE IF NOT EXISTS` 로 만들기도 함).

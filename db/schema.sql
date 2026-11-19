@@ -42,5 +42,6 @@ CREATE TABLE IF NOT EXISTS robot (
   position    TEXT,                    -- 마지막으로 도착한 곳 JSON {floor,x,y,label}
   progress    TEXT,                    -- 라인 트레이스 주행 보고 JSON {passed,next,at,speed} (노드를 지날 때마다)
   seen_at     INTEGER,                 -- 로봇 화면이 마지막으로 서버에 접속한 시각
-  updated_at  INTEGER
+  updated_at  INTEGER,
+  body_seen_at INTEGER                 -- 로봇 몸체(ESP8266)가 마지막으로 서버에 접속한 시각
 );

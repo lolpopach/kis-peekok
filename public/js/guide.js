@@ -124,6 +124,8 @@ KIS.Guide = (function () {
         </div>`;
     } else {
       const body = !!srv().robot.progress;
+      const ev = DL.elevatorWait(); // 엘리베이터 앞에 멈춤: 사람이 태워 주고 내린 뒤 누름
+      G.evShown = !!ev;
       panel = `<div class="esc-hero"><span class="esc-ico">${I('walk')}</span><div><p class="esc-kicker">데려다주기</p><h2 id="gd-headline">저를 따라오세요!</h2></div></div>
         ${destRow}
         <div class="esc-progress" aria-hidden="true"><i id="gd-bar"></i></div>
@@ -135,6 +137,7 @@ KIS.Guide = (function () {
         <p class="esc-now" id="gd-now"></p>
         <div class="esc-spacer"></div>
         <div class="route-actions">
+          ${ev ? `<button class="btn btn-primary" data-action="gd-elevator-out" style="grid-column: span 2">${I('elevator')}${ev.toFloor}층에서 내렸어요 · 다시 출발</button>` : ''}
           ${body ? '' : `<button class="btn btn-primary" data-action="gd-arrived">${I('arrive')}다 왔어요</button>`}
           <button class="btn btn-stop" data-action="gd-cancel" ${body ? 'style="grid-column: span 2"' : ''}>${I('close')}그만할래요</button>
         </div>`;
@@ -198,6 +201,7 @@ KIS.Guide = (function () {
     const set = (id, v) => { const e = document.getElementById(id); if (e && e.textContent !== v) e.textContent = v; };
     if (p.loc && p.loc.floor !== G.mapFloor) { mountMap(); return; }
     const live = $('#gd-live');
+    if (!!DL.elevatorWait() !== !!G.evShown) { app.render(); return; } // 엘리베이터 대기 시작·끝
     if (p.loc && $('[data-action="gd-arrived"]')) { app.render(); return; } // 로봇 몸체가 보고를 시작함: 수동 도착 버튼 숨김
     if (p.loc) {
       G.map.robotDot(p.loc.x, p.loc.y);
@@ -300,6 +304,12 @@ KIS.Guide = (function () {
       switch (a) {
         case 'escort': start(); return;
         case 'gd-arrived': DL.act('arrived', {}); return;
+        case 'gd-elevator-out': {
+          // 로봇 몸체(ESP8266)는 '지난 노드'가 엘리베이터 출구로 바뀌면 이어서 출발한다 (배달과 같은 방식)
+          const ev = DL.elevatorWait(), r = srv().robot;
+          if (ev) DL.act('progress', { passed: ev.exit, next: ev.after, speed: r.progress && r.progress.speed });
+          return;
+        }
         case 'gd-cancel':
           stopTimers();
           DL.act('cancel', {}).then((ok) => { if (ok) app.say('안내를 멈출게요. 저는 제자리로 돌아갈게요.'); });

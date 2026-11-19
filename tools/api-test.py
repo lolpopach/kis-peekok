@@ -46,7 +46,8 @@ def check(name, cond, extra=''):
 
 
 TARGET = {'room': 'f2-5-1', 'label': '5-1반', 'floor': 2, 'x': 358, 'y': 646.8,
-          'plan': {'nodes': [{'key': '1:L'}, {'key': '1:b2'}]}}
+          'plan': {'nodes': [{'key': '1:L', 'action': 'start', 'heading': 'N', 'next_m': 2.0},
+                             {'key': 'END', 'action': 'stop'}]}}
 
 print(f'API 점검: {BASE}')
 req('POST', '/api/robot/reset', {}, robot=True)
@@ -76,8 +77,26 @@ check('로봇이 호출을 받음 → 부른 곳으로', s == 200 and r['robot']
 
 s, r = req('POST', '/api/robot/progress', {'passed': '1:L', 'next': '1:b2', 'speed': 0.5}, robot=True)
 check('라인 트레이스 노드 통과 보고', s == 200 and r['robot']['progress']['passed'] == '1:L', r['robot']['progress'])
+
+# ESP8266 용 짧은 글자 응답
+def text_req(method, path, body=None):
+    data = json.dumps(body).encode() if body is not None else None
+    t = urllib.request.Request(BASE + path, data=data, method=method)
+    t.add_header('content-type', 'application/json')
+    t.add_header('user-agent', 'kis-peekok-api-test/1.0')
+    t.add_header('x-robot-key', KEY)
+    with urllib.request.urlopen(t) as res:
+        return res.status, res.read().decode()
+s, txt = text_req('GET', '/api/robot/drive')
+lines = txt.strip().split('\n')
+check('ESP8266 주행 계획 (글자 형식)', s == 200 and lines[0] == 'ok' and 'mode to_caller' in lines and 'passed 1:L' in lines
+      and lines[-1] == 'end' and 'nodes 2' in lines, ' | '.join(lines[:6]))
+s, txt = text_req('POST', '/api/robot/progress?fmt=text', {'passed': '1:b2', 'next': 'END', 'speed': 0.5})
+check('ESP8266 노드 보고 → 글자 응답', s == 200 and 'passed 1:b2' in txt.split('\n'))
+s, r = req('GET', '/api/robot', robot=True)
+check('로봇 몸체 연결됨 표시', r['robot']['bodyOnline'] is True)
 s, r = req('GET', f'/api/calls/{cid}?t={tok}')
-check('부른 사람 휴대폰에 로봇 위치가 보임', r['robot']['mine'] and r['robot']['progress']['next'] == '1:b2')
+check('부른 사람 휴대폰에 로봇 위치가 보임', r['robot']['mine'] and r['robot']['progress']['passed'] == '1:b2')
 
 s, r = req('POST', '/api/robot/arrived', {}, robot=True)
 check('부른 곳 도착 → 물건 싣기', r['robot']['mode'] == 'loading' and r['call']['status'] == 'loading')
