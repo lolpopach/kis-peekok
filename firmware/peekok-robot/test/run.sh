@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# 펌웨어 호스트 시험: PC 의 g++ 로 Arduino/ESP8266 흉내 헤더(stubs)와 함께 컴파일하고,
+# 펌웨어 호스트 시험: PC 의 g++ 로 Arduino/ESP8266 흉내 헤더(stubs)와 함께 컴파일하고(ESP8266 경로로 논리 시험),
 # 서버가 실제로 만드는 응답(make-drive.mjs)으로 응답 해석·회전·보고·엘리베이터 재출발을 확인한다.
-#   bash firmware/peekok-esp8266/test/run.sh
+# ESP32 쪽 실제 컴파일·업로드는 arduino-cli 로 한다 (README 참고).
+#   bash firmware/peekok-robot/test/run.sh
 set -euo pipefail
 cd "$(dirname "$0")"
 TMP=$(mktemp -d)

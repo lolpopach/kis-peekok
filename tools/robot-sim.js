@@ -14,7 +14,7 @@
  *   4) 마지막 노드(END)에 닿으면 POST /api/robot/arrived
  *
  * --fast 10 이면 10배 빠르게 (시험용). 실제 로봇은 라인 센서가 교차로를 감지할 때 progress 를 보내면 됩니다.
- * --text 를 붙이면 ESP8266 펌웨어(firmware/peekok-esp8266)와 똑같이 짧은 글자 형식 API 를 씁니다.
+ * --text 를 붙이면 로봇 몸체 펌웨어(firmware/peekok-robot, ESP32·ESP8266)와 똑같이 짧은 글자 형식 API 를 씁니다.
  */
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, v, i, arr) => {
   if (v.startsWith('--')) a.push([v.slice(2), arr[i + 1] && !arr[i + 1].startsWith('--') ? arr[i + 1] : true]);

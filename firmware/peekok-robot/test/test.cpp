@@ -1,5 +1,5 @@
 // 펌웨어 호스트 시험: 서버 응답 해석, 회전 방향, 보고 내용, 엘리베이터 재출발
-#include "../peekok-esp8266.ino"
+#include "../peekok-robot.ino"
 #include <fstream>
 #include <sstream>
 

@@ -1,11 +1,11 @@
-/* 피콕 로봇 몸체 — ESP8266 라인 트레이스 펌웨어
+/* 피콕 로봇 몸체 — ESP8266 · ESP32(Vietduino 등) 겸용 라인 트레이스 펌웨어
  *
  * 하는 일
  *   1) WiFi 로 https://<SERVER_HOST>/api/robot/drive 를 읽어 지금 모드와 주행 계획(노드 목록)을 받는다.
  *   2) 모드가 to_caller · delivering · returning 이면 계획대로 검정 라인을 따라 달린다.
  *        - 교차로(노드)를 만나면 멈추고 /api/robot/progress 로 "이 노드를 지나 다음 노드로" 보고
  *        - 계획의 방향(N·E·S·W)과 지금 방향을 비교해 직진·좌회전·우회전·유턴
- *        - 엘리베이터 노드: 멈춰서 기다림 → FLASH 버튼 또는 로봇 화면의 "내렸어요" 버튼으로 다시 출발
+ *        - 엘리베이터 노드: 멈춰서 기다림 → FLASH/BOOT 버튼 또는 로봇 화면의 "내렸어요" 버튼으로 다시 출발
  *        - 마지막 노드 다음(END, 방 문 앞)은 거리 ÷ 속도 시간만큼 가서 멈추고 /api/robot/arrived
  *   3) 그 밖의 모드(idle · loading · at_recipient)에서는 멈춰 기다린다.
  *
@@ -14,13 +14,24 @@
  *   <key> <action> <heading|-> <next_m> <toFloor>   ← 노드 수만큼
  *   end
  *
- * 준비: Arduino IDE 보드 매니저에서 "esp8266" 설치 → 보드 "NodeMCU 1.0" 또는 "LOLIN(WEMOS) D1 mini"
+ * 준비: 보드 종류는 아래 중 하나로 Arduino IDE/arduino-cli 에서 고른다 — 주행 로직은 같은 파일을 공유하고
+ *       (#if defined(ESP32)) 로 라이브러리·핀·아날로그 읽기만 나뉜다.
+ *         - ESP32 (Vietduino ESP32 등 ESP32-WROOM-32 DevKit 호환 보드): 보드 매니저 "esp32" 설치 →
+ *           보드 "ESP32 Dev Module" (arduino-cli FQBN: esp32:esp32:esp32)
+ *         - ESP8266 (NodeMCU 1.0 · Wemos D1 mini): 보드 매니저 "esp8266" 설치 →
+ *           보드 "NodeMCU 1.0" 또는 "LOLIN(WEMOS) D1 mini"
  *       config.example.h 를 config.h 로 복사해 WiFi·로봇 키·핀을 채운다.
  * 시리얼(115200): s 센서 보기 · f 앞으로 · l/r 제자리 회전 · c 속도 재기(5초 직진) · p 계획 보기 · x 멈춤
  */
+#if defined(ESP32)
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
+#else
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
 #include <WiFiClientSecureBearSSL.h>
+#endif
 
 #if __has_include("config.h")
 #include "config.h"
@@ -58,15 +69,20 @@ int lastSteer = 0;            // 마지막으로 선이 보인 쪽 (-1 왼쪽, 1
 unsigned long lastPoll = 0;
 
 // ───────── 네트워크 ─────────
+#if defined(ESP32)
+WiFiClientSecure tls;
+#else
 BearSSL::WiFiClientSecure tls;
 BearSSL::Session tlsSession;
+#endif
 HTTPClient http;
 
 // ───────── 하드웨어 ─────────
 bool readLine(int pin) { return (digitalRead(pin) == HIGH) == (LINE_IS_HIGH == 1); }
-bool sLeft() { return readLine(PIN_SENSOR_LEFT); }
-bool sMid() { return readLine(PIN_SENSOR_MID); }
-bool sRight() { return (analogRead(PIN_SENSOR_RIGHT) > RIGHT_ANALOG_THRESHOLD) == (LINE_IS_HIGH == 1); }
+bool readAnalogLine(int pin, int thresh) { return (analogRead(pin) > thresh) == (LINE_IS_HIGH == 1); }
+bool sLeft() { return SENSOR_LEFT_ANALOG ? readAnalogLine(PIN_SENSOR_LEFT, LEFT_ANALOG_THRESHOLD) : readLine(PIN_SENSOR_LEFT); }
+bool sMid() { return SENSOR_MID_ANALOG ? readAnalogLine(PIN_SENSOR_MID, MID_ANALOG_THRESHOLD) : readLine(PIN_SENSOR_MID); }
+bool sRight() { return SENSOR_RIGHT_ANALOG ? readAnalogLine(PIN_SENSOR_RIGHT, RIGHT_ANALOG_THRESHOLD) : readLine(PIN_SENSOR_RIGHT); }
 
 void motor(int pinA, int pinB, int v, bool invert) {
   v = constrain(v, -PWM_MAX, PWM_MAX);
@@ -79,7 +95,7 @@ void drive(int left, int right) {
   motor(PIN_RIGHT_A, PIN_RIGHT_B, right, RIGHT_INVERT);
 }
 void stopMotors() { drive(0, 0); }
-void led(bool on) { digitalWrite(PIN_LED, on ? LOW : HIGH); }
+void led(bool on) { digitalWrite(PIN_LED, on ? LED_ON : LED_OFF); }
 bool buttonPressed() { return digitalRead(PIN_BUTTON) == LOW; }
 
 // ───────── 방향 계산 ─────────
@@ -110,7 +126,7 @@ bool request(bool post, const String& path, const String& body, String& out) {
   http.setTimeout(8000);
   if (!http.begin(tls, SERVER_HOST, 443, path, true)) return false;
   http.addHeader("X-Robot-Key", ROBOT_KEY);
-  http.addHeader("User-Agent", "peekok-esp8266/1.0");
+  http.addHeader("User-Agent", "peekok-robot/1.0");
   int code;
   if (post) {
     http.addHeader("Content-Type", "application/json");
@@ -330,7 +346,10 @@ void serialCommands() {
   char ch = Serial.read();
   if (ch == 's') {
     for (int i = 0; i < 50; i++) {
-      Serial.printf("왼쪽 %d  가운데 %d  오른쪽 %d (A0=%d)\n", sLeft(), sMid(), sRight(), analogRead(PIN_SENSOR_RIGHT));
+      Serial.printf("왼쪽 %d(%d)  가운데 %d(%d)  오른쪽 %d(%d)  — 괄호는 아날로그 핀일 때만 원값, 문턱값은 config.h 에서 조정\n",
+        sLeft(), SENSOR_LEFT_ANALOG ? analogRead(PIN_SENSOR_LEFT) : -1,
+        sMid(), SENSOR_MID_ANALOG ? analogRead(PIN_SENSOR_MID) : -1,
+        sRight(), SENSOR_RIGHT_ANALOG ? analogRead(PIN_SENSOR_RIGHT) : -1);
       delay(100);
     }
   } else if (ch == 'f') forwardFor(1000);
@@ -361,8 +380,10 @@ void setup() {
   pinMode(PIN_SENSOR_LEFT, INPUT); pinMode(PIN_SENSOR_MID, INPUT);
   pinMode(PIN_BUTTON, INPUT_PULLUP);
   pinMode(PIN_LED, OUTPUT);
-  analogWriteRange(PWM_MAX);
+#if !defined(ESP32)
+  analogWriteRange(PWM_MAX);   // ESP32 는 기본 8비트(0~255)·1kHz 그대로 씀 (PWM_MAX 와 맞춰 둠)
   analogWriteFreq(1000);
+#endif
   stopMotors();
 
   WiFi.mode(WIFI_STA);
@@ -373,8 +394,10 @@ void setup() {
 
   // HTTPS: 인증서 검사를 하지 않는 간단한 방식(학교 WiFi 안에서 사용). 보안을 높이려면 README 참고.
   tls.setInsecure();
+#if !defined(ESP32)
   tls.setSession(&tlsSession);                 // 다시 접속할 때 빠르게
   if (tls.probeMaxFragmentLength(SERVER_HOST, 443, 1024)) tls.setBufferSizes(1024, 1024);
+#endif
   pollDrive();
   doneRev = planRev;                           // 켜기 전에 남아 있던 계획은 다시 달리지 않는다
   Serial.printf("서버 연결됨 · 모드 %s\n", serverMode.c_str());

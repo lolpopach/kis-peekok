@@ -16,11 +16,13 @@
   → 도착(at_recipient) → 받았어요(delivered) → 로봇 제자리(returning → idle). 로봇 화면 쪽은 `public/js/delivery.js`.
 - 서버 API 와 로봇 몸체(라인 트레이스) 연결 규약: `docs/robot-api.md`. 노드 = `data.js` 의 nodes, 주행 계획 = `Router.robotPlan`,
   위치 추정 = `Router.locate`(노드 통과 보고 + 등속도). 로봇은 엘리베이터만 쓴다(사람이 태워 주고 FLASH 버튼/화면 "내렸어요").
-- **로봇 몸체는 ESP8266**(사용자 결정). 펌웨어 `firmware/peekok-esp8266/` (Arduino, 추가 라이브러리 없음, `config.h` 는 gitignore).
-  ESP8266 은 글자 형식 API(`GET /api/robot/drive`, POST `?fmt=text`, `lib/shared.js` 의 `driveText`)를 쓴다 — 형식을 바꾸면 펌웨어도 같이 바꾼다.
+- **로봇 몸체는 Vietduino ESP32**(ESP8266 도 지원, 사용자 결정). 펌웨어 `firmware/peekok-robot/` (Arduino, 추가 라이브러리 없음, `config.h` 는 gitignore).
+  한 파일(`peekok-robot.ino`)이 `#if defined(ESP32)` 로 라이브러리·핀·아날로그 읽기만 나누고 주행 로직은 공유한다.
+  ESP32·ESP8266 모두 글자 형식 API(`GET /api/robot/drive`, POST `?fmt=text`, `lib/shared.js` 의 `driveText`)를 쓴다 — 형식을 바꾸면 펌웨어도 같이 바꾼다.
   교차로에서는 서버가 준 action(경로 모양 기준)을 따르고, 방향(N/E/S/W)은 출발할 때 몸 돌리기에만 쓴다(대각선 구간 때문).
-  펌웨어 점검: 이 환경에서는 arduino-cli 를 받을 수 없어, `bash firmware/peekok-esp8266/test/run.sh`
-  (호스트 g++ + Arduino 흉내 헤더로 컴파일하고 서버 driveText 응답으로 논리 시험) 를 쓴다. 실제 ESP8266 컴파일은 사용자 Arduino IDE 에서.
+  펌웨어 점검: `bash firmware/peekok-robot/test/run.sh` (호스트 g++ + Arduino 흉내 헤더로 컴파일하고 서버 driveText 응답으로 논리 시험,
+  항상 ESP8266 코드 경로지만 공유 로직이라 ESP32 쪽도 같이 검증됨). 실제 보드 컴파일·업로드는 이 환경에 설치된 `arduino-cli`
+  (`arduino-cli compile --fqbn esp32:esp32:esp32 -u -p <포트> firmware/peekok-robot`, ESP8266 은 `esp8266:esp8266:nodemcuv2`)로 한다.
 - D1: `kis-peekok` (id 는 wrangler.toml), 구조 `db/schema.sql` (서버가 처음 요청 때 `CREATE TABLE IF NOT EXISTS` 로 만들기도 함).
   열을 추가할 때는 D1 API 로 `ALTER TABLE` 을 직접 실행한다.
 - 비밀값 `ROBOT_KEY`: Pages 프로젝트 비밀값(운영·미리보기). 값을 저장소·채팅에 남기지 않는다. 로컬은 `.dev.vars`(gitignore).
