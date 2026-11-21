@@ -24,6 +24,11 @@
   항상 ESP8266 코드 경로지만 공유 로직이라 ESP32 쪽도 같이 검증됨). 실제 보드 컴파일·업로드는 보드가 꽂힌 사용자 Mac 의 Claude CLI 세션에서 `arduino-cli`
   (`arduino-cli compile --fqbn esp32:esp32:esp32 -u -p <포트> firmware/peekok-robot`, ESP8266 은 `esp8266:esp8266:nodemcuv2`)로 한다.
   클라우드 환경에서는 arduino-cli 를 받을 수 없고 보드에도 닿지 않으니 호스트 시험만 한다.
+  Mac 에서 시리얼 읽기: 포트는 `ls /dev/cu.usbserial-*`(다시 꽂으면 이름이 바뀜), 업로드가 끊기면 `UploadSpeed=115200`.
+  Mac 에는 `timeout` 이 없고 `arduino-cli monitor` 는 시간 제한을 걸면 아무것도 안 나오니, 포트를 직접 열어 시간 제한(perl 등)을 걸고 읽는다.
+  펌웨어는 켤 때만 연결 로그를 찍으므로 esptool 로 보드를 재시작한 뒤 읽는다. config.h 의 WiFi 비밀번호·로봇 키는 출력하지 않는다.
+  서버 쪽 확인: D1 `robot.body_seen_at`(몸체 마지막 인증 접속)·`seen_at`(로봇 화면) — 클라우드 세션이 Cloudflare API 로 본다.
+  WiFi: ESP32 는 2.4GHz 만, iPhone 핫스팟은 '호환성 최대화' + 설정 화면을 열어 둬야 보임(172.20.10.x). 시험 중엔 iPhone 핫스팟 `zzzz` 사용.
 - 길 안내 방식 두 가지(`public/js/guide.js`): 길 안내 화면에서 "데려다주세요"(로봇이 문 앞까지 앞장섬, 로봇 상태 guiding → guided → returning)
   또는 "QR로 받을게요"(휴대폰 길 안내). 데려다주기도 배달과 같은 주행 계획·위치 추정·로봇 API 를 쓴다.
 - D1: `kis-peekok` (id 는 wrangler.toml), 구조 `db/schema.sql` (서버가 처음 요청 때 `CREATE TABLE IF NOT EXISTS` 로 만들기도 함).
