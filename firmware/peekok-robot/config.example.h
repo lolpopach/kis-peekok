@@ -10,15 +10,18 @@
 #define ROBOT_KEY        "로봇키"          // Cloudflare 의 ROBOT_KEY 와 같은 값
 
 // ── 핀 ──
-// 모터 드라이버: 입력 4개짜리(L298N, L9110S, MX1508 등). L298N 은 ENA/ENB 점퍼를 꽂은 채로 씁니다.
+// 모터 드라이버: L298N (ENA/ENB 를 PWM 핀에 연결 — 점퍼는 뺌) 또는 입력 4개짜리(L9110S, MX1508, 점퍼 꽂은 L298N).
+//   PIN_LEFT_EN / PIN_RIGHT_EN 에 핀 번호를 쓰면 EN 핀으로 세기·IN 핀으로 방향, -1 이면 IN 핀에 PWM.
 // 적외선 라인 센서 3개 (TCRT5000 모듈 등). 가운데 센서가 선 위, 양쪽 센서는 선 바깥에 오게 둡니다.
 #if defined(ESP32)
 // Vietduino ESP32 (표준 ESP32-WROOM-32 DevKit 핀맵) 기준.
 // 0·2·12·15(부팅 핀), 6~11(내장 플래시), 1·3(시리얼)은 모터·센서에 쓰지 않습니다.
-#define PIN_LEFT_A       25   // 왼쪽 모터 IN1
-#define PIN_LEFT_B       26   // 왼쪽 모터 IN2
-#define PIN_RIGHT_A      27   // 오른쪽 모터 IN3
-#define PIN_RIGHT_B      13   // 오른쪽 모터 IN4
+#define PIN_LEFT_EN      18   // L298N ENA (왼쪽 모터 세기, PWM) — 점퍼를 빼야 함
+#define PIN_LEFT_A       16   // L298N IN1 (왼쪽 방향)
+#define PIN_LEFT_B       17   // L298N IN2
+#define PIN_RIGHT_EN     19   // L298N ENB (오른쪽 모터 세기, PWM) — 점퍼를 빼야 함
+#define PIN_RIGHT_A      25   // L298N IN3 (오른쪽 방향)
+#define PIN_RIGHT_B      26   // L298N IN4
 #define PIN_SENSOR_LEFT  32   // ADC1 — 아날로그로 읽음 (WiFi 켜도 읽힘)
 #define PIN_SENSOR_MID   33   // ADC1
 #define PIN_SENSOR_RIGHT 34   // ADC1 (입력 전용 핀)
@@ -35,6 +38,8 @@
 #define PWM_MAX          255  // ESP32 analogWrite 기본 해상도(8비트) 기준
 #else
 // NodeMCU 1.0 · Wemos D1 mini 기준.
+#define PIN_LEFT_EN      -1   // ENA/ENB 점퍼를 꽂은 채 IN 핀에 PWM (ESP8266 은 핀이 모자라서)
+#define PIN_RIGHT_EN     -1
 #define PIN_LEFT_A       D1   // 왼쪽 모터 IN1
 #define PIN_LEFT_B       D2   // 왼쪽 모터 IN2
 #define PIN_RIGHT_A      D5   // 오른쪽 모터 IN3

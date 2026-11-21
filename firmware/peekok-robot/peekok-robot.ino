@@ -39,6 +39,13 @@
 #include "config.example.h"
 #warning "config.h 가 없어 config.example.h 로 컴파일합니다. 복사해서 값을 채우세요."
 #endif
+// 예전 config.h 에는 EN 핀 설정이 없음 → ENA/ENB 점퍼를 꽂은 방식으로
+#ifndef PIN_LEFT_EN
+#define PIN_LEFT_EN  -1
+#endif
+#ifndef PIN_RIGHT_EN
+#define PIN_RIGHT_EN -1
+#endif
 
 // ───────── 주행 계획 ─────────
 const int MAX_NODES = 64;
@@ -84,15 +91,22 @@ bool sLeft() { return SENSOR_LEFT_ANALOG ? readAnalogLine(PIN_SENSOR_LEFT, LEFT_
 bool sMid() { return SENSOR_MID_ANALOG ? readAnalogLine(PIN_SENSOR_MID, MID_ANALOG_THRESHOLD) : readLine(PIN_SENSOR_MID); }
 bool sRight() { return SENSOR_RIGHT_ANALOG ? readAnalogLine(PIN_SENSOR_RIGHT, RIGHT_ANALOG_THRESHOLD) : readLine(PIN_SENSOR_RIGHT); }
 
-void motor(int pinA, int pinB, int v, bool invert) {
+// 모터 한 쪽: v 는 -PWM_MAX(뒤로) ~ PWM_MAX(앞으로)
+// pinEn >= 0 : L298N ENA/ENB 를 PWM 핀에 연결(점퍼 뺌) → IN 두 핀은 방향만, 세기는 EN 핀으로
+// pinEn <  0 : ENA/ENB 점퍼를 꽂은 채 → IN 두 핀에 PWM (L9110S·MX1508 처럼 입력 4개짜리 드라이버도 이 방식)
+void motor(int pinA, int pinB, int pinEn, int v, bool invert) {
   v = constrain(v, -PWM_MAX, PWM_MAX);
   if (invert) v = -v;
-  if (v >= 0) { analogWrite(pinA, v); analogWrite(pinB, 0); }
+  if (pinEn >= 0) {
+    digitalWrite(pinA, v > 0 ? HIGH : LOW);
+    digitalWrite(pinB, v < 0 ? HIGH : LOW);
+    analogWrite(pinEn, v >= 0 ? v : -v);
+  } else if (v >= 0) { analogWrite(pinA, v); analogWrite(pinB, 0); }
   else { analogWrite(pinA, 0); analogWrite(pinB, -v); }
 }
 void drive(int left, int right) {
-  motor(PIN_LEFT_A, PIN_LEFT_B, left, LEFT_INVERT);
-  motor(PIN_RIGHT_A, PIN_RIGHT_B, right, RIGHT_INVERT);
+  motor(PIN_LEFT_A, PIN_LEFT_B, PIN_LEFT_EN, left, LEFT_INVERT);
+  motor(PIN_RIGHT_A, PIN_RIGHT_B, PIN_RIGHT_EN, right, RIGHT_INVERT);
 }
 void stopMotors() { drive(0, 0); }
 void led(bool on) { digitalWrite(PIN_LED, on ? LED_ON : LED_OFF); }
@@ -470,6 +484,8 @@ void setup() {
   Serial.println("\n피콕 로봇 몸체 시작");
   pinMode(PIN_LEFT_A, OUTPUT); pinMode(PIN_LEFT_B, OUTPUT);
   pinMode(PIN_RIGHT_A, OUTPUT); pinMode(PIN_RIGHT_B, OUTPUT);
+  if (PIN_LEFT_EN >= 0) pinMode(PIN_LEFT_EN, OUTPUT);
+  if (PIN_RIGHT_EN >= 0) pinMode(PIN_RIGHT_EN, OUTPUT);
   pinMode(PIN_SENSOR_LEFT, INPUT); pinMode(PIN_SENSOR_MID, INPUT);
   pinMode(PIN_BUTTON, INPUT_PULLUP);
   pinMode(PIN_LED, OUTPUT);

@@ -99,6 +99,22 @@ int main(int argc, char** argv) {
   CHECK(buttonPressed() == true, "FLASH 버튼 누르면 LOW = 눌림");
   fake_pins[D3] = HIGH;
 
+  printf("== 모터: L298N EN(PWM) + IN(방향) 방식 ==\n");
+  motor(5, 6, 7, 200, false);
+  CHECK(fake_pins[5] == HIGH && fake_pins[6] == LOW && fake_pwm[7] == 200, "앞으로: IN1 HIGH · IN2 LOW · EN 200");
+  motor(5, 6, 7, -150, false);
+  CHECK(fake_pins[5] == LOW && fake_pins[6] == HIGH && fake_pwm[7] == 150, "뒤로: IN1 LOW · IN2 HIGH · EN 150");
+  motor(5, 6, 7, 120, true);
+  CHECK(fake_pins[5] == LOW && fake_pins[6] == HIGH && fake_pwm[7] == 120, "반대 설정(INVERT): 방향만 바뀜");
+  motor(5, 6, 7, 0, false);
+  CHECK(fake_pins[5] == LOW && fake_pins[6] == LOW && fake_pwm[7] == 0, "멈춤: IN 둘 다 LOW · EN 0");
+  motor(5, 6, 7, 99999, false);
+  CHECK(fake_pwm[7] == PWM_MAX, "세기는 PWM_MAX 까지");
+  printf("== 모터: 점퍼 꽂은 방식(IN 핀에 PWM) ==\n");
+  motor(8, 9, -1, 300, false);
+  CHECK(fake_pwm[8] == 300 && fake_pwm[9] == 0, "앞으로: IN1 PWM · IN2 0");
+  motor(8, 9, -1, -300, false);
+  CHECK(fake_pwm[8] == 0 && fake_pwm[9] == 300, "뒤로: IN1 0 · IN2 PWM");
   printf("== WiFi 이름 비교 (iPhone ’ 따옴표·대소문자·띄어쓰기) ==\n");
   {
     char a[48], b[48];
