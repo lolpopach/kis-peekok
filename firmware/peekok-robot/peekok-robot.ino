@@ -384,7 +384,9 @@ void ssidKey(const char* in, char* out, size_t n) {
   out[j] = 0;
 }
 #if defined(ESP32)
-volatile int wifiReason = 0;  // ESP32 가 알려 주는 마지막 연결 끊김 이유 번호
+volatile int wifiReason = 0;           // ESP32 가 알려 주는 마지막 연결 끊김 이유 번호
+volatile uint32_t wifiReasonCount = 0; // 끊긴 횟수
+volatile bool wifiQuiet = false;       // 진단하려고 우리가 끊는 동안은 기록하지 않음
 #endif
 const char* reasonHelp(int r) {
   switch (r) {
@@ -393,6 +395,8 @@ const char* reasonHelp(int r) {
     case 200: return "→ 신호가 끊겼어요 (멀거나 핫스팟이 꺼짐)";
     case 203: return "→ WiFi 가 접속을 거절했어요 (연결 기기 수 제한·기기 차단)";
     case 210: case 211: return "→ 보안 방식이 안 맞아요 (WPA3 전용이면 WPA2 로 바꿔 보세요)";
+    case 2: return "→ WiFi 가 응답하지 않아요 (멀거나 보안 방식 문제)";
+    case 8: case 36: return "→ 연결을 스스로 끊었어요 (다시 연결 시도)";
     default: return "";
   }
 }
@@ -420,11 +424,16 @@ void wifiHelp(bool scan) {
 #endif
     "");
 #if defined(ESP32)
-  if (wifiReason) Serial.printf("[WiFi] 끊긴 이유 %d (%s) %s\n", wifiReason, WiFi.disconnectReasonName((wifi_err_reason_t)wifiReason), reasonHelp(wifiReason));
+  if (wifiReason) Serial.printf("[WiFi] 지금까지 %lu번 끊김, 마지막 이유 %d (%s) %s\n", (unsigned long)wifiReasonCount, wifiReason,
+                                WiFi.disconnectReasonName((wifi_err_reason_t)wifiReason), reasonHelp(wifiReason));
+  else Serial.println("[WiFi] 끊긴 기록 없음 → 연결 시도 자체가 안 되고 있어요");
 #endif
   Serial.printf("[WiFi] config.h 의 비밀번호 길이: %d바이트 (WPA2 는 8~63자, 실제 비밀번호 글자 수와 같은지 확인)\n", (int)strlen(WIFI_PASS));
   if (strcmp(WIFI_SSID, "학교WiFi이름") == 0) Serial.println("[WiFi] config.h 의 WIFI_SSID·WIFI_PASS 를 아직 안 고쳤어요 (config.h 가 없으면 config.example.h 로 올라감)");
   if (!scan) { Serial.print("[WiFi] 계속 연결 중"); return; }
+#if defined(ESP32)
+  wifiQuiet = true;
+#endif
   WiFi.setAutoReconnect(false);   // 연결 시도 중에는 검색이 안 되니 잠시 멈춤
   WiFi.disconnect();
   delay(1000);
@@ -448,6 +457,9 @@ void wifiHelp(bool scan) {
   else Serial.println("[WiFi] 같은 이름이 안 보여요 → 5GHz 전용인지 확인하세요. iPhone 핫스팟은 '호환성 최대화'를 켜고 핫스팟 설정 화면을 열어 두세요.");
   WiFi.scanDelete();
   WiFi.setAutoReconnect(true);
+#if defined(ESP32)
+  wifiQuiet = false;
+#endif
   WiFi.reconnect();   // 설정은 그대로 두고 다시 연결 (begin 을 다시 부르면 연결 중일 때 "cannot set config" 오류)
   Serial.print("[WiFi] 다시 연결 중");
 }
@@ -468,16 +480,26 @@ void setup() {
   stopMotors();
 
 #if defined(ESP32)
-  WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t info) { wifiReason = info.wifi_sta_disconnected.reason; },
-               ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+  WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t info) {
+    if (wifiQuiet) return;
+    wifiReason = info.wifi_sta_disconnected.reason;
+    wifiReasonCount = wifiReasonCount + 1;
+  }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
 #endif
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   Serial.printf("\nWiFi \"%s\" 연결 중", WIFI_SSID);
   unsigned long wifiStart = millis();
   int wifiFails = 0;
+#if defined(ESP32)
+  int shownReason = -1;
+#endif
   while (WiFi.status() != WL_CONNECTED) {
     led(true); delay(150); led(false); delay(150); Serial.print('.');
+#if defined(ESP32)
+    int r = wifiReason;   // 끊긴 이유가 바뀔 때마다 바로 보여 줌
+    if (r && r != shownReason) { shownReason = r; Serial.printf("\n[WiFi] 끊김: 이유 %d (%s) %s\n", r, WiFi.disconnectReasonName((wifi_err_reason_t)r), reasonHelp(r)); }
+#endif
     if (millis() - wifiStart > 20000) { wifiHelp(wifiFails++ % 3 == 0); wifiStart = millis(); }   // 목록은 1분마다
   }
   Serial.printf("\nWiFi 연결됨: %s\n", WiFi.localIP().toString().c_str());
