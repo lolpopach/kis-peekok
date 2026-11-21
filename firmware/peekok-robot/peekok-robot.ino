@@ -410,7 +410,8 @@ const char* encName(int t) {
 #endif
   return "비밀번호(WPA/WPA2)";
 }
-void wifiHelp() {
+// scan: 보이는 WiFi 목록까지 (그 사이에는 이유만 출력하고 연결 시도는 건드리지 않음)
+void wifiHelp(bool scan) {
   int st = WiFi.status();
   Serial.printf("\n[WiFi] \"%s\" 에 20초 동안 못 붙었어요 (상태 %d%s)\n", WIFI_SSID, st,
     st == WL_NO_SSID_AVAIL ? ": 이 이름의 WiFi 가 안 보임" : st == WL_CONNECT_FAILED ? ": 비밀번호가 틀렸거나 지원하지 않는 방식" :
@@ -423,9 +424,10 @@ void wifiHelp() {
 #endif
   Serial.printf("[WiFi] config.h 의 비밀번호 길이: %d바이트 (WPA2 는 8~63자, 실제 비밀번호 글자 수와 같은지 확인)\n", (int)strlen(WIFI_PASS));
   if (strcmp(WIFI_SSID, "학교WiFi이름") == 0) Serial.println("[WiFi] config.h 의 WIFI_SSID·WIFI_PASS 를 아직 안 고쳤어요 (config.h 가 없으면 config.example.h 로 올라감)");
+  if (!scan) { Serial.print("[WiFi] 계속 연결 중"); return; }
   WiFi.setAutoReconnect(false);   // 연결 시도 중에는 검색이 안 되니 잠시 멈춤
   WiFi.disconnect();
-  delay(500);
+  delay(1000);
   int n = WiFi.scanNetworks();
   if (n < 0) { delay(1500); n = WiFi.scanNetworks(); }
   char want[48], key[48];
@@ -446,7 +448,7 @@ void wifiHelp() {
   else Serial.println("[WiFi] 같은 이름이 안 보여요 → 5GHz 전용인지 확인하세요. iPhone 핫스팟은 '호환성 최대화'를 켜고 핫스팟 설정 화면을 열어 두세요.");
   WiFi.scanDelete();
   WiFi.setAutoReconnect(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  WiFi.reconnect();   // 설정은 그대로 두고 다시 연결 (begin 을 다시 부르면 연결 중일 때 "cannot set config" 오류)
   Serial.print("[WiFi] 다시 연결 중");
 }
 
@@ -473,9 +475,10 @@ void setup() {
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   Serial.printf("\nWiFi \"%s\" 연결 중", WIFI_SSID);
   unsigned long wifiStart = millis();
+  int wifiFails = 0;
   while (WiFi.status() != WL_CONNECTED) {
     led(true); delay(150); led(false); delay(150); Serial.print('.');
-    if (millis() - wifiStart > 20000) { wifiHelp(); wifiStart = millis(); }
+    if (millis() - wifiStart > 20000) { wifiHelp(wifiFails++ % 3 == 0); wifiStart = millis(); }   // 목록은 1분마다
   }
   Serial.printf("\nWiFi 연결됨: %s\n", WiFi.localIP().toString().c_str());
 

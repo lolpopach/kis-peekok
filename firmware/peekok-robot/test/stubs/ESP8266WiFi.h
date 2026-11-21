@@ -17,6 +17,7 @@ struct FakeWiFi {
   IPAddress localIP() { return IPAddress(); }
   void disconnect() {}
   void setAutoReconnect(bool) {}
+  bool reconnect() { return true; }
   int scanNetworks() { return 0; }
   String SSID(int) { return String(); }
   int RSSI(int) { return 0; }
