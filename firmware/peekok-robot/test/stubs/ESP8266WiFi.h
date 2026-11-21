@@ -3,6 +3,7 @@
 #define WL_NO_SSID_AVAIL 1
 #define WL_CONNECTED 3
 #define WL_CONNECT_FAILED 4
+#define WL_WRONG_PASSWORD 6
 #define ENC_TYPE_WEP 5
 #define ENC_TYPE_CCMP 4
 #define ENC_TYPE_NONE 7
@@ -15,6 +16,7 @@ struct FakeWiFi {
   int status() { return st; }
   IPAddress localIP() { return IPAddress(); }
   void disconnect() {}
+  void setAutoReconnect(bool) {}
   int scanNetworks() { return 0; }
   String SSID(int) { return String(); }
   int RSSI(int) { return 0; }

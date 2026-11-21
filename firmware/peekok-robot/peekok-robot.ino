@@ -383,12 +383,27 @@ void ssidKey(const char* in, char* out, size_t n) {
   }
   out[j] = 0;
 }
+#if defined(ESP32)
+volatile int wifiReason = 0;  // ESP32 가 알려 주는 마지막 연결 끊김 이유 번호
+#endif
+const char* reasonHelp(int r) {
+  switch (r) {
+    case 15: case 202: case 204: return "→ 비밀번호가 틀렸을 가능성이 커요";
+    case 201: return "→ 이 이름의 WiFi 가 안 보여요";
+    case 200: return "→ 신호가 끊겼어요 (멀거나 핫스팟이 꺼짐)";
+    case 203: return "→ WiFi 가 접속을 거절했어요 (연결 기기 수 제한·기기 차단)";
+    case 210: case 211: return "→ 보안 방식이 안 맞아요 (WPA3 전용이면 WPA2 로 바꿔 보세요)";
+    default: return "";
+  }
+}
 const char* encName(int t) {
 #if defined(ESP32)
   if (t == WIFI_AUTH_OPEN) return "비밀번호 없음";
   if (t == WIFI_AUTH_WEP) return "WEP(오래된 방식)";
   if (t == WIFI_AUTH_WPA2_ENTERPRISE) return "아이디+비밀번호(엔터프라이즈) - 펌웨어 기능 추가 필요";
-  if (t == WIFI_AUTH_WPA3_PSK) return "비밀번호(WPA3)";
+  if (t == WIFI_AUTH_WPA3_PSK) return "비밀번호(WPA3 전용)";
+  if (t == WIFI_AUTH_WPA2_WPA3_PSK) return "비밀번호(WPA2/WPA3)";
+  if (t == WIFI_AUTH_WPA_PSK) return "비밀번호(WPA, 옛 방식)";
 #else
   if (t == ENC_TYPE_NONE) return "비밀번호 없음";
   if (t == ENC_TYPE_WEP) return "WEP(오래된 방식)";
@@ -398,11 +413,21 @@ const char* encName(int t) {
 void wifiHelp() {
   int st = WiFi.status();
   Serial.printf("\n[WiFi] \"%s\" 에 20초 동안 못 붙었어요 (상태 %d%s)\n", WIFI_SSID, st,
-    st == WL_NO_SSID_AVAIL ? ": 이 이름의 WiFi 가 안 보임" : st == WL_CONNECT_FAILED ? ": 비밀번호가 틀렸거나 지원하지 않는 방식" : "");
+    st == WL_NO_SSID_AVAIL ? ": 이 이름의 WiFi 가 안 보임" : st == WL_CONNECT_FAILED ? ": 비밀번호가 틀렸거나 지원하지 않는 방식" :
+#if !defined(ESP32)
+    st == WL_WRONG_PASSWORD ? ": 비밀번호가 틀림" :
+#endif
+    "");
+#if defined(ESP32)
+  if (wifiReason) Serial.printf("[WiFi] 끊긴 이유 %d (%s) %s\n", wifiReason, WiFi.disconnectReasonName((wifi_err_reason_t)wifiReason), reasonHelp(wifiReason));
+#endif
+  Serial.printf("[WiFi] config.h 의 비밀번호 길이: %d바이트 (WPA2 는 8~63자, 실제 비밀번호 글자 수와 같은지 확인)\n", (int)strlen(WIFI_PASS));
   if (strcmp(WIFI_SSID, "학교WiFi이름") == 0) Serial.println("[WiFi] config.h 의 WIFI_SSID·WIFI_PASS 를 아직 안 고쳤어요 (config.h 가 없으면 config.example.h 로 올라감)");
+  WiFi.setAutoReconnect(false);   // 연결 시도 중에는 검색이 안 되니 잠시 멈춤
   WiFi.disconnect();
-  delay(200);
+  delay(500);
   int n = WiFi.scanNetworks();
+  if (n < 0) { delay(1500); n = WiFi.scanNetworks(); }
   char want[48], key[48];
   ssidKey(WIFI_SSID, want, sizeof want);
   bool exact = false, similar = false;
@@ -420,6 +445,7 @@ void wifiHelp() {
   else if (similar) Serial.println("[WiFi] ? 이름과 똑같이(대소문자·띄어쓰기·’ 따옴표까지) config.h 의 WIFI_SSID 를 고치세요. 목록 글자를 그대로 복사하면 정확해요.");
   else Serial.println("[WiFi] 같은 이름이 안 보여요 → 5GHz 전용인지 확인하세요. iPhone 핫스팟은 '호환성 최대화'를 켜고 핫스팟 설정 화면을 열어 두세요.");
   WiFi.scanDelete();
+  WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   Serial.print("[WiFi] 다시 연결 중");
 }
@@ -439,6 +465,10 @@ void setup() {
 #endif
   stopMotors();
 
+#if defined(ESP32)
+  WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t info) { wifiReason = info.wifi_sta_disconnected.reason; },
+               ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+#endif
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   Serial.printf("\nWiFi \"%s\" 연결 중", WIFI_SSID);

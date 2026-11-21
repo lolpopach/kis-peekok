@@ -109,6 +109,7 @@ int main(int argc, char** argv) {
     ssidKey("PEEKOK-5G", b, sizeof b);
     CHECK(strcmp(a, b) != 0, "다른 이름은 다르게");
     CHECK(strcmp(encName(ENC_TYPE_NONE), "비밀번호 없음") == 0, "보안 방식 이름");
+    CHECK(strstr(reasonHelp(15), "비밀번호") && strstr(reasonHelp(202), "비밀번호") && reasonHelp(999)[0] == 0, "끊긴 이유 15·202 → 비밀번호 안내");
   }
   printf("\n%s (%d개 실패)\n", fails ? "실패 있음" : "모두 통과", fails);
   return fails ? 1 : 0;
