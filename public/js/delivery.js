@@ -22,16 +22,28 @@ KIS.Delivery = (function () {
   /* ── 설정: robot.html#key=... 로 열면 이 기기를 로봇으로 등록 ── */
   function readKey() {
     try {
-      const m = location.hash.match(/key=([^&]+)/);
-      if (m) {
-        localStorage.setItem(KEY_STORE, decodeURIComponent(m[1]));
-        localStorage.setItem(DEVICE_STORE, '1');
+      const i = location.hash.indexOf('key=');
+      if (i >= 0) {
+        // 'key=' 뒤 전부가 키 (키에 & · % 같은 글자가 있어도 그대로)
+        const raw = location.hash.slice(i + 4).trim();
+        let k = raw;
+        try { k = decodeURIComponent(raw); } catch (e) { /* % 가 들어간 키는 그대로 */ }
+        if (k) {
+          localStorage.setItem(KEY_STORE, k);
+          localStorage.setItem(DEVICE_STORE, '1');
+        }
         history.replaceState(null, '', location.pathname + location.search);
       }
       key = localStorage.getItem(KEY_STORE);
       if (key) localStorage.setItem(DEVICE_STORE, '1');
     } catch (e) { key = null; }
   }
+  // 이미 열린 화면에서 주소 뒤에 #key=… 만 바꿔 열면 페이지가 다시 열리지 않으니, 새 키를 저장하고 다시 연다
+  window.addEventListener('hashchange', () => {
+    if (location.hash.indexOf('key=') < 0) return;
+    readKey();
+    location.reload();
+  });
 
   async function api(method, path, body) {
     const res = await fetch(`/api/robot${path}`, {
