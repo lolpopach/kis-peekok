@@ -99,6 +99,17 @@ int main(int argc, char** argv) {
   CHECK(buttonPressed() == true, "FLASH 버튼 누르면 LOW = 눌림");
   fake_pins[D3] = HIGH;
 
+  printf("== WiFi 이름 비교 (iPhone ’ 따옴표·대소문자·띄어쓰기) ==\n");
+  {
+    char a[48], b[48];
+    ssidKey("Chan\xE2\x80\x99s iPhone", a, sizeof a);
+    ssidKey("chan's iphone", b, sizeof b);
+    CHECK(strcmp(a, b) == 0 && strcmp(a, "chansiphone") == 0, "’ 와 ' · 대소문자 · 띄어쓰기만 다르면 비슷한 이름");
+    ssidKey("PEEKOK-2G", a, sizeof a);
+    ssidKey("PEEKOK-5G", b, sizeof b);
+    CHECK(strcmp(a, b) != 0, "다른 이름은 다르게");
+    CHECK(strcmp(encName(ENC_TYPE_NONE), "비밀번호 없음") == 0, "보안 방식 이름");
+  }
   printf("\n%s (%d개 실패)\n", fails ? "실패 있음" : "모두 통과", fails);
   return fails ? 1 : 0;
 }

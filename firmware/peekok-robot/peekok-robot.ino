@@ -371,6 +371,59 @@ void serialCommands() {
 }
 
 // ───────── 시작 ─────────
+// ───────── WiFi 진단 (20초 안에 못 붙으면 이유와 보이는 WiFi 목록을 알려 줌) ─────────
+// 이름 비교용: 영문 소문자로 바꾸고 띄어쓰기·작은따옴표(' ‘ ’)는 뺀다 (iPhone 이름의 ’ 때문)
+void ssidKey(const char* in, char* out, size_t n) {
+  size_t j = 0;
+  for (size_t i = 0; in[i] && j + 1 < n; i++) {
+    unsigned char c = (unsigned char)in[i];
+    if (c == 0xE2 && (unsigned char)in[i + 1] == 0x80 && ((unsigned char)in[i + 2] == 0x98 || (unsigned char)in[i + 2] == 0x99)) { i += 2; continue; }
+    if (c == ' ' || c == '\'') continue;
+    out[j++] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : (char)c;
+  }
+  out[j] = 0;
+}
+const char* encName(int t) {
+#if defined(ESP32)
+  if (t == WIFI_AUTH_OPEN) return "비밀번호 없음";
+  if (t == WIFI_AUTH_WEP) return "WEP(오래된 방식)";
+  if (t == WIFI_AUTH_WPA2_ENTERPRISE) return "아이디+비밀번호(엔터프라이즈) - 펌웨어 기능 추가 필요";
+  if (t == WIFI_AUTH_WPA3_PSK) return "비밀번호(WPA3)";
+#else
+  if (t == ENC_TYPE_NONE) return "비밀번호 없음";
+  if (t == ENC_TYPE_WEP) return "WEP(오래된 방식)";
+#endif
+  return "비밀번호(WPA/WPA2)";
+}
+void wifiHelp() {
+  int st = WiFi.status();
+  Serial.printf("\n[WiFi] \"%s\" 에 20초 동안 못 붙었어요 (상태 %d%s)\n", WIFI_SSID, st,
+    st == WL_NO_SSID_AVAIL ? ": 이 이름의 WiFi 가 안 보임" : st == WL_CONNECT_FAILED ? ": 비밀번호가 틀렸거나 지원하지 않는 방식" : "");
+  if (strcmp(WIFI_SSID, "학교WiFi이름") == 0) Serial.println("[WiFi] config.h 의 WIFI_SSID·WIFI_PASS 를 아직 안 고쳤어요 (config.h 가 없으면 config.example.h 로 올라감)");
+  WiFi.disconnect();
+  delay(200);
+  int n = WiFi.scanNetworks();
+  char want[48], key[48];
+  ssidKey(WIFI_SSID, want, sizeof want);
+  bool exact = false, similar = false;
+  Serial.printf("[WiFi] 지금 보이는 WiFi %d개 (2.4GHz 만 보여요)  ▶ 같은 이름 · ? 비슷한 이름\n", n < 0 ? 0 : n);
+  for (int i = 0; i < n; i++) {
+    String name = WiFi.SSID(i);
+    ssidKey(name.c_str(), key, sizeof key);
+    bool same = strcmp(name.c_str(), WIFI_SSID) == 0;
+    bool like = !same && strcmp(key, want) == 0;
+    exact = exact || same;
+    similar = similar || like;
+    Serial.printf("  %s \"%s\"  신호 %d  %s\n", same ? "▶" : like ? "?" : " ", name.c_str(), (int)WiFi.RSSI(i), encName(WiFi.encryptionType(i)));
+  }
+  if (exact) Serial.println("[WiFi] 이름은 맞아요 → WIFI_PASS(비밀번호)를 확인하세요. '아이디+비밀번호' 방식이면 펌웨어에 기능을 추가해야 해요.");
+  else if (similar) Serial.println("[WiFi] ? 이름과 똑같이(대소문자·띄어쓰기·’ 따옴표까지) config.h 의 WIFI_SSID 를 고치세요. 목록 글자를 그대로 복사하면 정확해요.");
+  else Serial.println("[WiFi] 같은 이름이 안 보여요 → 5GHz 전용인지 확인하세요. iPhone 핫스팟은 '호환성 최대화'를 켜고 핫스팟 설정 화면을 열어 두세요.");
+  WiFi.scanDelete();
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  Serial.print("[WiFi] 다시 연결 중");
+}
+
 void setup() {
   Serial.begin(115200);
   delay(100);
@@ -388,8 +441,12 @@ void setup() {
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
-  Serial.print("WiFi 연결 중");
-  while (WiFi.status() != WL_CONNECTED) { led(true); delay(150); led(false); delay(150); Serial.print('.'); }
+  Serial.printf("\nWiFi \"%s\" 연결 중", WIFI_SSID);
+  unsigned long wifiStart = millis();
+  while (WiFi.status() != WL_CONNECTED) {
+    led(true); delay(150); led(false); delay(150); Serial.print('.');
+    if (millis() - wifiStart > 20000) { wifiHelp(); wifiStart = millis(); }
+  }
   Serial.printf("\nWiFi 연결됨: %s\n", WiFi.localIP().toString().c_str());
 
   // HTTPS: 인증서 검사를 하지 않는 간단한 방식(학교 WiFi 안에서 사용). 보안을 높이려면 README 참고.
