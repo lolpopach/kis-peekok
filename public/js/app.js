@@ -288,7 +288,7 @@
               <span class="step-text">${esc(s.text)}</span>
               <span class="step-floor">${s.floor}층</span></button></li>`).join('')}
           </ol>
-          <button class="qr-btn" data-action="qr">${I('qr')}<span><b>휴대폰으로 보기</b><small>QR 코드를 찍으면 이 길 안내가 휴대폰에 떠요</small></span>${I('chevron')}</button>
+          ${(hooks.routeChoice && hooks.routeChoice(r, p)) || `<button class="qr-btn" data-action="qr">${I('qr')}<span><b>휴대폰으로 보기</b><small>QR 코드를 찍으면 이 길 안내가 휴대폰에 떠요</small></span>${I('chevron')}</button>`}
           <div class="route-actions">
             <button class="btn" data-action="replay">${I('sound')}다시 듣기</button>
             <button class="btn btn-primary" data-action="back">${I('search')}다른 곳 찾기</button>
@@ -394,8 +394,14 @@
     // 지도는 고정: 층 전체가 한눈에 보이게 (확대·이동 없음)
     mapView.showRoute(seg, { isFirst: i === 0, prevFloor: i > 0 ? r.segments[i - 1].floor : null, room: r.room });
     // 지금 보고 있는 층의 안내 단계가 보이도록
+    // 단계 목록 안에서만 스크롤한다 (휴대폰 가로처럼 패널 전체가 스크롤될 때 목적지·안내 방식이 위로 밀려나지 않게)
     const cur = document.querySelector('.step.is-cur');
-    if (cur) cur.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    const list = cur && cur.closest('.steps');
+    if (list && list.scrollHeight > list.clientHeight + 1) {
+      const top = cur.getBoundingClientRect().top - list.getBoundingClientRect().top;
+      const bottom = top + cur.offsetHeight;
+      if (top < 0 || bottom > list.clientHeight) list.scrollTo({ top: list.scrollTop + top - 8, behavior: 'smooth' });
+    }
   }
 
   /* ── 길 안내 시작 ── */
@@ -409,12 +415,13 @@
       return;
     }
     let r;
+    const from = (hooks.here && hooks.here()) || state.location; // 로봇이 제자리를 떠나 있으면 로봇이 있는 곳에서
     if (kind) {
       const pred = kind === 'restroom' ? (x) => x.cat === 'restroom' : (x) => x.cat === 'elev';
-      r = RT.nearest(state.location, pred, { mode: state.mode });
+      r = RT.nearest(from, pred, { mode: state.mode });
     } else {
       const room = D.roomById(target);
-      r = room && RT.route(state.location, room, { mode: state.mode });
+      r = room && RT.route(from, room, { mode: state.mode });
     }
     state.route = r;
     state.seg = 0;
@@ -426,10 +433,17 @@
     announce(r, kind);
   }
 
-  function announce(r, kind) {
+  function announce(r, kind, full) {
     const name = kind === 'restroom' ? '가장 가까운 화장실' : kind === 'elevator' ? '가장 가까운 엘리베이터' : nameOf(r.room);
-    const sameFloor = r.room.floor === state.location.floor;
+    const sameFloor = r.room.floor === r.from.floor;
     const head = `${RT.josa(name, '은/는')} ${sameFloor ? `이 층(${r.room.floor}층)` : `${r.room.floor}층`}에 있어요.`;
+    // 안내 방식(데려다주기 / QR)을 고를 수 있으면 길 설명 대신 먼저 물어본다
+    if (!full && hooks.routeAsk && hooks.routeAsk(r)) {
+      miniFace.react('happy', 1600);
+      $('#bubble').textContent = `${head} 제가 데려다 드릴까요?`;
+      Speech.say(`${head} 제가 데려다 드릴까요? 휴대폰으로 길 안내를 받으셔도 돼요.`);
+      return;
+    }
     miniFace.react('happy', 1600);
     $('#bubble').textContent = `${head} 지도를 보고 따라가세요!`;
     Speech.say(`${head} ${r.steps.slice(1).map((s) => s.text).join('. ')}.`);
@@ -459,7 +473,7 @@
           startRoute(p.id, p.kind);
         }
         break;
-      case 'replay': if (state.route) announce(state.route, state.current.params.kind); break;
+      case 'replay': if (state.route) announce(state.route, state.current.params.kind, true); break;
       case 'step': {
         const s = state.route.steps[Number(id)];
         const i = segIndexForStep(s);
@@ -491,6 +505,7 @@
     const b = $('#btn-sound');
     b.innerHTML = I(state.voice ? 'sound' : 'mute') + `<span>${state.voice ? '소리 켬' : '소리 끔'}</span>`;
     b.setAttribute('aria-pressed', String(state.voice));
+    b.setAttribute('aria-label', state.voice ? '소리 켬' : '소리 끔'); // 휴대폰 가로에서는 글자를 숨기고 아이콘만
   }
   renderSoundBtn();
   $('#mini-face').addEventListener('click', () => { miniFace.react('happy'); Speech.say(`저는 ${iAm}. 무엇이든 물어보세요!`); });
@@ -563,6 +578,7 @@
     lastTouch = Date.now();
     clearTimeout(idleT);
     if (!appScreen.classList.contains('is-active')) return;
+    if (hooks.holdIdle && hooks.holdIdle()) return; // 데려다주기 중에는 얼굴로 돌아가지 않음
     idleT = setTimeout(sleep, state.idleSec * 1000);
   }
   ['pointerdown', 'keydown', 'wheel'].forEach((ev) => document.addEventListener(ev, resetIdle, { passive: true }));
@@ -766,13 +782,15 @@
   const QR = (function () {
     const box = $('#qr');
     let closeT;
-    function routeUrl() {
-      const p = state.current.params, r = state.route, L = state.location;
+    // r: 경로 (출발점 r.from → r.room). 데려다준 뒤에는 로봇이 멈춘 곳에서 시작하는 경로를 넘긴다
+    function routeUrl(r = state.route, kind = state.current.params.kind) {
+      const L = r.from || state.location, mode = r.mode || state.mode;
       // Cloudflare Pages 는 m.html 을 m 으로 넘겨주므로 공개 주소에서는 바로 m 을 쓴다 (QR 도 짧아짐)
       const base = (CFG.publicUrl ? new URL('m', CFG.publicUrl) : new URL('m.html', location.href)).toString();
-      let q = `to=${encodeURIComponent(r.room.id)}&at=${L.floor},${L.x},${L.y}`;
-      if (state.mode !== 'stairs') q += `&mode=${state.mode}`;
-      if (p.kind) q += `&k=${p.kind}`;
+      const n = (x) => Math.round(x * 10) / 10;
+      let q = `to=${encodeURIComponent(r.room.id)}&at=${L.floor},${n(L.x)},${n(L.y)}`;
+      if (mode !== 'stairs') q += `&mode=${mode}`;
+      if (kind) q += `&k=${kind}`;
       return `${base}?${q}`;
     }
     function svgFor(text) {
@@ -805,7 +823,7 @@
       box.hidden = true;
     }
     box.addEventListener('click', (e) => { if (e.target === box || e.target.closest('[data-qr-close]')) close(); });
-    return { open, close, url: () => routeUrl() };
+    return { open, close, url: () => routeUrl(), urlFor: routeUrl, svg: svgFor };
   })();
 
   /* ── 관리자 설정 (시계를 3초간 길게 누르기) ── */
@@ -903,9 +921,10 @@
   window.KIS.app = {
     go, back, goHome, render, startRoute, sleep, wake, showApp, state, views, hooks,
     bubble, caption, clearCaption, say: (t) => Speech.say(t), stopSpeech: () => Speech.stop(),
-    keyboard: Keyboard, faces: { big: bigFace, mini: miniFace }, viewHead, esc, catLabel,
+    keyboard: Keyboard, faces: { big: bigFace, mini: miniFace }, viewHead, esc, catLabel, qr: QR, legend,
     isFace: () => faceScreen.classList.contains('is-active'),
     idleFor: () => Date.now() - lastTouch,
   };
   if (window.KIS.Delivery) window.KIS.Delivery.init(window.KIS.app);
+  if (window.KIS.Guide) window.KIS.Guide.init(window.KIS.app);
 })();

@@ -21,8 +21,11 @@
   ESP32·ESP8266 모두 글자 형식 API(`GET /api/robot/drive`, POST `?fmt=text`, `lib/shared.js` 의 `driveText`)를 쓴다 — 형식을 바꾸면 펌웨어도 같이 바꾼다.
   교차로에서는 서버가 준 action(경로 모양 기준)을 따르고, 방향(N/E/S/W)은 출발할 때 몸 돌리기에만 쓴다(대각선 구간 때문).
   펌웨어 점검: `bash firmware/peekok-robot/test/run.sh` (호스트 g++ + Arduino 흉내 헤더로 컴파일하고 서버 driveText 응답으로 논리 시험,
-  항상 ESP8266 코드 경로지만 공유 로직이라 ESP32 쪽도 같이 검증됨). 실제 보드 컴파일·업로드는 이 환경에 설치된 `arduino-cli`
+  항상 ESP8266 코드 경로지만 공유 로직이라 ESP32 쪽도 같이 검증됨). 실제 보드 컴파일·업로드는 보드가 꽂힌 사용자 Mac 의 Claude CLI 세션에서 `arduino-cli`
   (`arduino-cli compile --fqbn esp32:esp32:esp32 -u -p <포트> firmware/peekok-robot`, ESP8266 은 `esp8266:esp8266:nodemcuv2`)로 한다.
+  클라우드 환경에서는 arduino-cli 를 받을 수 없고 보드에도 닿지 않으니 호스트 시험만 한다.
+- 길 안내 방식 두 가지(`public/js/guide.js`): 길 안내 화면에서 "데려다주세요"(로봇이 문 앞까지 앞장섬, 로봇 상태 guiding → guided → returning)
+  또는 "QR로 받을게요"(휴대폰 길 안내). 데려다주기도 배달과 같은 주행 계획·위치 추정·로봇 API 를 쓴다.
 - D1: `kis-peekok` (id 는 wrangler.toml), 구조 `db/schema.sql` (서버가 처음 요청 때 `CREATE TABLE IF NOT EXISTS` 로 만들기도 함).
   열을 추가할 때는 D1 API 로 `ALTER TABLE` 을 직접 실행한다.
 - 비밀값 `ROBOT_KEY`: Pages 프로젝트 비밀값(운영·미리보기). 값을 저장소·채팅에 남기지 않는다. 로컬은 `.dev.vars`(gitignore).
