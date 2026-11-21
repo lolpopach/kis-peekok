@@ -67,7 +67,7 @@ KIS.Delivery = (function () {
   }
   async function poll() {
     clearTimeout(pollT);
-    try { take(await api('GET', '')); online = true; } catch (e) { online = false; if (e.status === 401) app.bubble('로봇 키가 맞지 않아요. 관리자에게 설정 링크를 받아 다시 열어 주세요.', false); }
+    try { take(await api('GET', '')); online = true; } catch (e) { online = false; if (e.status === 401) app.bubble(key ? '이 기기에 저장된 로봇 키가 서버의 키와 달라요. 키를 확인해서 설정 링크(/robot#key=…)를 다시 열어 주세요.' : '이 기기에 로봇 키가 없어요. 설정 링크(/robot#key=…)를 열어 주세요.', false); }
     const busyMode = srv && srv.robot && srv.robot.mode !== 'idle';
     pollT = setTimeout(poll, busyMode ? 2000 : 3000);
   }
