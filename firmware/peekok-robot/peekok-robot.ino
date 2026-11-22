@@ -181,6 +181,8 @@ unsigned long moveMs = 0;     // 바퀴를 실제로 돌린 시간 합 (회전 �
 unsigned long moveLastAt = 0;
 int turnForwardMs = TURN_FORWARD_MS;   // 교차로 감지 뒤 더 가는 시간 — 시리얼 , . 로 바꾸고 보드에 기억
 bool junctionL = false, junctionR = false;   // 이번 교차로에서 선을 본 옆 센서
+bool junctionArmed = true;       // 회전 뒤에는 옆 센서가 방금 지난 선(제자리 회전이라 옆 센서 밑에 남음)을 벗어나 바닥을 본 뒤에야 다시 교차로를 셈
+unsigned long sideClearSince = 0;
 unsigned long lastFollowAt = 0;
 // 장애물
 bool blocked = false;
@@ -386,7 +388,7 @@ void lineFollow(int base, bool sideRecover = false) {
 bool liftedNow() {
   if (!(sFrontL() && sFrontR() && (PIN_SENSOR_LEFT < 0 || sLeft()) && sRight())) { allBlackSince = 0; return false; }
   if (!allBlackSince) allBlackSince = millis();
-  return millis() - allBlackSince >= LIFT_MS;
+  return millis() - allBlackSince >= (junctionArmed ? LIFT_MS : LIFT_MS * 3UL);   // 회전 직후엔 교차점 위라 더 기다림
 }
 // 새로 선을 잡은 뒤(회전·출발) 따라가기 상태를 처음부터
 void followReset() { followSide = -9; followSince = millis(); lineSeenAt = millis(); lastFollowAt = 0; allBlackSince = 0; counterUntil = 0; }
@@ -394,6 +396,12 @@ void followReset() { followSide = -9; followSince = millis(); lineSeenAt = milli
 bool junctionSeen(bool allowed) {
   unsigned long now = millis();
   bool l = sLeft(), r = sRight();
+  if (!junctionArmed) {               // 옆 센서 둘 다 바닥을 (움직이며) 0.1초 보면 다시 셀 준비
+    if (!l && !r) { if (!sideClearSince) sideClearSince = moveMs + 1; if (moveMs + 1 - sideClearSince >= 100) junctionArmed = true; }
+    else sideClearSince = 0;
+    junctionSince = 0;
+    return false;
+  }
   if (!allowed || (long)(moveMs - junctionIgnoreMove) < 0 || !(l || r)) { junctionSince = 0; return false; }
   if (!junctionSince) { junctionSince = now; junctionL = junctionR = false; }
   junctionL = junctionL || l; junctionR = junctionR || r;   // 어느 쪽에 선이 있었는지 (분기 시험용)
@@ -550,6 +558,7 @@ bool doTurn(char t, char want, bool atJunction) {
   else if (t == 'U') { ok = spinToLine(1, UTURN_MIN_MS); }
   if (ok && want != '-') heading = want;
   junctionIgnoreMove = moveMs + JUNCTION_COOLDOWN_MS;   // 방금 지난 교차로 선을 다시 세지 않게 (움직인 시간 기준)
+  junctionArmed = false; sideClearSince = 0;            // 옆 센서가 그 선을 벗어나 바닥을 본 뒤에야 다음 교차로
   junctionSince = 0;
   followReset();
   Serial.printf("[회전] %c → 방향 %c %s\n", t, want, ok ? "" : "(선을 못 찾음)");

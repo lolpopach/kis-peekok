@@ -74,7 +74,7 @@
 #define PWM_FREQ         200    // 모터 PWM 주파수(Hz) — 낮을수록 약한 세기에서도 바퀴가 돌아 천천히 달릴 수 있음
 #define MIN_PWM          (PWM_MAX * 80 / 255)    // 이보다 약하면 바퀴가 안 도는 세기 — 시리얼 'w' 로 찾아 맞추기. 0 이 아닌 값은 이 이상으로 올림
 #define SPEED_PWM        (PWM_MAX * 95 / 255)    // 선 따라갈 때 기본 세기 (처음 값 — 시리얼 + / - 로 바꾸면 보드에 기억)
-#define SPEED_DUTY       60     // 느리게 달리기: PULSE_MS 중 바퀴를 돌리는 비율(%) — 100 이면 끊지 않음. 시리얼 + / - 로 ±5 (보드에 기억)
+#define SPEED_DUTY       90     // 느리게 달리기: PULSE_MS 중 바퀴를 돌리는 비율(%) — 100 이면 끊지 않음. 시리얼 + / - 로 ±5 (보드에 기억)
 #define PULSE_MS         150    // 끊어 가기 한 주기(ms)
 #define TURN_PWM         (PWM_MAX * 120 / 255)   // 제자리 회전 세기
 #define ROBOT_SPEED_MPS  0.30   // SPEED_PWM 으로 선을 따라갈 때 실제 속도(m/s) — 시리얼 'c' 명령으로 재서 맞추세요
@@ -84,7 +84,7 @@
 #define STEER_MIN        (PWM_MAX * 30 / 255)    // 막 꺾기 시작할 때 좌우 바퀴 세기 차이의 절반 (흔들리면 줄이기)
 #define STEER_MAX        (PWM_MAX * 170 / 255)   // 한쪽 검정이 오래 이어지면 점점 세게 — 곡선에서 선을 놓치면 늘리기
 #define STEER_RAMP_MS    600    // STEER_MIN → MAX 까지 걸리는 시간 (곡선에서 선을 놓치면 줄이기, 지그재그가 크면 늘리기)
-#define COUNTER_RATIO    0.5    // 흔들림 줄이기: 바로잡기가 끝나면 그 시간의 이 비율만큼 반대로 살짝(STEER_MIN) 꺾음 (0 = 안 함)
+#define COUNTER_RATIO    0.0    // 흔들림 줄이기: 바로잡기가 끝나면 그 시간의 이 비율만큼 반대로 살짝(STEER_MIN) 꺾음 (0 = 안 함)
 #define COUNTER_MAX_MS   150    // 반대로 꺾는 최대 시간
 #define LOST_LINE_MS     3000   // 서버 주행: 다음 교차로가 예상 시간의 2배 + 이 시간이 지나도 안 나오면 멈춤
 
@@ -112,7 +112,7 @@
 // ── 선 따라가기 시험 (시리얼 't' 또는 대기 중 BOOT 버튼) ──
 #define TRACE_MS         60000  // 최대 시험 시간
 #define TRACE_LOST_MS    1500   // 한쪽 꺾기가 이만큼 이어지면 선을 놓친 것으로 보고 멈춤
-#define LIFT_MS          500    // 센서 4개가 모두 이만큼 검정이면(로봇을 들었거나 검정 바닥) 멈춤
+#define LIFT_MS          1500    // 센서 4개가 모두 이만큼 검정이면(로봇을 들었거나 검정 바닥) 멈춤
 
 // ── 코스 시험 (시리얼 'k', 서버 없이) ──
 // 양옆 센서가 표시(교차로·분기, 또는 선 끝에 붙인 가로선)를 볼 때마다 한 글자씩: R 우회전 · L 좌회전 · S 직진 · U 유턴 · E 정지

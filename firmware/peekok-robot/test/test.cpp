@@ -175,9 +175,11 @@ int main(int argc, char** argv) {
   for (int i = 0; i < 20; i++) { fake_millis += 10; lineFollow(SPEED_PWM); }  // 0.2초 오른쪽으로 바로잡기
   fake_pins[PIN_FRONT_RIGHT] = LOW;
   fake_millis += 10; lineFollow(SPEED_PWM);
-  CHECK(lastLeftPwm < lastRightPwm && lastRightPwm - lastLeftPwm == 2 * STEER_MIN, "선이 가운데로 돌아오면 → 왼쪽으로 살짝 (반대로)");
-  fake_millis += (unsigned long)(200 * COUNTER_RATIO) + 20; lineFollow(SPEED_PWM);
-  CHECK(lastLeftPwm == lastRightPwm, "바로잡은 시간 x COUNTER_RATIO 가 지나면 곧장");
+  if (COUNTER_RATIO > 0) {
+    CHECK(lastLeftPwm < lastRightPwm && lastRightPwm - lastLeftPwm == 2 * STEER_MIN, "선이 가운데로 돌아오면 → 왼쪽으로 살짝 (반대로)");
+    fake_millis += (unsigned long)(200 * COUNTER_RATIO) + 20; lineFollow(SPEED_PWM);
+  }
+  CHECK(lastLeftPwm == lastRightPwm, "반대로 꺾기가 꺼져 있거나 시간이 지나면 곧장");
   setTrim(0);
 
   printf("== 교차로: 옆 센서 ==\n");
@@ -246,6 +248,17 @@ int main(int argc, char** argv) {
   for (int i = 0; i < TRACE_MS / 50 + 5 && state == ST_TRACE; i++) { fake_millis += 50; traceStep(); }
   CHECK(state == ST_IDLE, "TRACE_MS 가 지나면 멈춤");
   setTrim(0);
+
+  printf("== 회전 뒤: 옆 센서가 바닥을 본 뒤에야 다음 교차로 ==\n");
+  junctionArmed = false; sideClearSince = 0; junctionIgnoreMove = 0; junctionSince = 0;
+  fake_analog = 1000;                          // 회전 직후 옆 센서가 방금 지난 선 위
+  for (int i = 0; i < 50; i++) { fake_millis += 10; moveMs += 10; CHECK(i < 49 || !junctionSeen(true), "옆 센서가 선 위에 계속 있으면 교차로로 안 셈"); }
+  fake_analog = 0;
+  for (int i = 0; i < 12; i++) { fake_millis += 10; moveMs += 10; junctionSeen(true); }
+  CHECK(junctionArmed, "바닥을 0.1초 보면 다시 셀 준비");
+  fake_analog = 1000; junctionSeen(true); fake_millis += JUNCTION_MS; moveMs += JUNCTION_MS;
+  CHECK(junctionSeen(true), "그 다음 선 = 다음 교차로");
+  fake_analog = 0;
 
   printf("== 제자리 회전 방향 ==\n");
   fake_pins[PIN_FRONT_LEFT] = LOW; fake_pins[PIN_FRONT_RIGHT] = LOW;
