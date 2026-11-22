@@ -366,8 +366,10 @@ int deadzone(int v) {
   if (a < MIN_PWM / 3) return 0;
   return v < 0 ? -MIN_PWM : MIN_PWM;
 }
+bool noDeadzone = false;   // 유턴 중에는 MIN_PWM 으로 올리지 않음 (UTURN_PWM 을 그대로)
 void motor(int pinA, int pinB, int pinEn, int v, bool invert) {
-  v = deadzone(constrain(v, -PWM_MAX, PWM_MAX));
+  v = constrain(v, -PWM_MAX, PWM_MAX);
+  if (!noDeadzone) v = deadzone(v);
   if (invert) v = -v;
   if (pinEn >= 0) {
     digitalWrite(pinA, v > 0 ? HIGH : LOW);
@@ -783,6 +785,7 @@ bool arcToLine(int dir) {
 bool spinUturn(int dir, unsigned long ignoreMs) {
   int savedDuty = speedDuty;
   speedDuty = 100;
+  noDeadzone = true;             // 유턴은 정한 세기 그대로 (최소 세기로 올리지 않음)
   unsigned long m0 = moveMs, t0 = millis();
   moveLastAt = 0;
   bool leadSeen = false, ok = false;
@@ -801,6 +804,7 @@ bool spinUturn(int dir, unsigned long ignoreMs) {
   }
   if (ok && SPIN_BRAKE_MS > 0) { drive(-dir * UTURN_PWM, dir * UTURN_PWM); delay(SPIN_BRAKE_MS); }
   stopMotors();
+  noDeadzone = false;
   speedDuty = savedDuty;
   delay(100);
   if (!ok) Out.println("[유턴] 왔던 선을 끝내 못 찾음 → 멈춤");
