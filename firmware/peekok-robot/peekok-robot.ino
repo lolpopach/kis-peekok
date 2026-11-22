@@ -127,6 +127,15 @@
 #ifndef FLICKER_MS
 #define FLICKER_MS 1000
 #endif
+#ifndef BACK_PWM
+#define BACK_PWM (PWM_MAX * 100 / 255)
+#endif
+#ifndef BACK_EXTRA_MS
+#define BACK_EXTRA_MS 150
+#endif
+#ifndef BACK_TIMEOUT_MS
+#define BACK_TIMEOUT_MS 6000
+#endif
 #ifndef TURN_PAUSE_MS
 #define TURN_PAUSE_MS 1000
 #endif
@@ -232,6 +241,7 @@ unsigned long lastSonar = 0;
 int lastCm = -1;
 // 코스 시험
 int routeIdx = 0;
+char routeBuf[32] = TEST_ROUTE;   // 코스 시험 순서 — 시리얼 K<글자들> 로 바꾸고 보드에 기억
 
 // ───────── 네트워크 ─────────
 #if defined(ESP32)
@@ -310,6 +320,7 @@ void trimLoad() {
     if (p.isKey("speed")) speedPwm = constrain((int)p.getInt("speed", SPEED_PWM), 0, PWM_MAX);
     if (p.isKey("tfwd")) turnForwardMs = constrain((int)p.getInt("tfwd", TURN_FORWARD_MS), 0, 1500);
     if (p.isKey("duty")) speedDuty = constrain((int)p.getInt("duty", SPEED_DUTY), 10, 100);
+    if (p.isKey("route")) { String r = p.getString("route", TEST_ROUTE); if (r.length() && r.length() < sizeof(routeBuf)) strcpy(routeBuf, r.c_str()); }
     p.end();
   }
 #elif defined(ESP8266)
@@ -331,6 +342,12 @@ void trimSave(bool force) {
 #endif
   savedTrim = motorTrim;
   Serial.printf("[모터 보정] %+.3f 저장 (왼쪽 x%.2f · 오른쪽 x%.2f)\n", motorTrim, 1 + motorTrim, 1 - motorTrim);
+}
+void routeSave() {
+#if defined(ESP32)
+  Preferences p;
+  if (p.begin("peekok", false)) { p.putString("route", routeBuf); p.end(); }
+#endif
 }
 void speedSave() {
 #if defined(ESP32)
@@ -759,7 +776,34 @@ void followStep() {
 
 // ───────── 코스 시험 (서버 없이, 시리얼 'k') ─────────
 // 표시(양옆 센서가 보는 교차로·분기·선 끝 가로선)를 만날 때마다 TEST_ROUTE 의 다음 글자를 한다.
-const char* testRoute = TEST_ROUTE;
+const char* testRoute = routeBuf;
+// 끝(T자)에서 뒤로 가서 본선 찾기: 뒤 센서가 T자 가로선을 벗어난 뒤, 두 뒤 센서가 모두 본선을 보면
+// BACK_EXTRA_MS 만큼 더 물러나 바퀴 축을 본선 위에 맞추고 멈춤
+bool backToLine() {
+  unsigned long m0 = moveMs, t0 = millis();
+  moveLastAt = 0;
+  bool cleared = false, seenL = PIN_SENSOR_LEFT < 0, seenR = PIN_SENSOR_RIGHT < 0;
+  while (moveMs - m0 < BACK_TIMEOUT_MS && millis() - t0 < BACK_TIMEOUT_MS * 12UL) {
+    driveP(-BACK_PWM, -BACK_PWM);
+    bool l = sLeft(), r = sRight();
+    if (!cleared) { if (!l && !r) cleared = true; }
+    else {
+      if (l) seenL = true;
+      if (r) seenR = true;
+      if (seenL && seenR) {
+        Serial.println("[코스] 뒤로 가다 뒤 센서가 본선에 닿음");
+        unsigned long m1 = moveMs;
+        while (moveMs - m1 < BACK_EXTRA_MS) { driveP(-BACK_PWM, -BACK_PWM); yield(); }
+        stopMotors();
+        delay(200);
+        return true;
+      }
+    }
+    yield();
+  }
+  stopMotors();
+  return false;
+}
 void testStart() {
   routeIdx = 0;
   blocked = false; nearCount = farCount = 0;
@@ -797,6 +841,23 @@ void testEvent() {
                   a == 'E' ? "멈춤" : a == 'L' ? "좌회전" : "우회전");
   } else Serial.printf("[코스 시험] %d번째 표시 → %c\n", routeIdx, a);
   if (a == 'E') { testFinish("정지 (완료)"); return; }
+  if (a == 'b' || a == 'B') {   // 끝(T자): 1초 멈춤 → 뒤로 가서 본선 찾기 → 다음 글자(L/R/S)로 본선에서 회전
+    Serial.printf("[코스] 끝 — %d초 멈춘 뒤 뒤로 가요\n", TURN_PAUSE_MS / 1000);
+    delay(TURN_PAUSE_MS);
+    if (!backToLine()) { testFinish("뒤로 가다 본선을 못 찾았어요"); return; }
+    char t = testRoute[routeIdx];
+    if (t == 'L' || t == 'R') {
+      routeIdx++;
+      Serial.printf("[코스] 본선에서 %s\n", t == 'L' ? "좌회전" : "우회전");
+      if (!doTurn(t, '-', false)) { testFinish("본선으로 돌다 선을 못 찾았어요"); return; }
+    } else {
+      if (t == 'S') routeIdx++;
+      junctionArmed = false; sideClearSince = 0; junctionSince = 0;
+      followReset();
+    }
+    if (!testRoute[routeIdx]) testFinish("코스 글자를 다 썼어요");
+    return;
+  }
   if (!doTurn(a, '-', true)) { testFinish("회전하다 선을 못 찾았어요"); return; }
   if (!testRoute[routeIdx]) testFinish("코스 글자를 다 썼어요");
 }
@@ -994,8 +1055,21 @@ void serialCommands() {
   } else if (ch == ',' || ch == '.') {
     turnForwardMs = constrain(turnForwardMs + (ch == '.' ? 20 : -20), 0, 1500);
     speedSave();
+  } else if (ch == 'K') {         // K<순서 글자들> + 엔터(또는 0.5초 쉼): 코스 순서 바꾸기·저장
+    char buf[sizeof(routeBuf)]; int n = 0; unsigned long t0 = millis();
+    while (millis() - t0 < 500) {
+      if (Serial.available()) {
+        char c = Serial.read(); t0 = millis();
+        if (c == '\n' || c == '\r') break;
+        if (n < (int)sizeof(buf) - 1 && strchr("LRSUEbB", c)) buf[n++] = c;
+      }
+      yield();
+    }
+    buf[n] = 0;
+    if (n) { strcpy(routeBuf, buf); routeSave(); }
+    Serial.printf("[코스] 순서 \"%s\" (R 우회전 · L 좌회전 · S 직진 · b 끝에서 뒤로 가서 본선 찾기 · E 정지)\n", routeBuf);
   } else if (ch == 'k') {
-    testRoute = TEST_ROUTE;
+    testRoute = routeBuf;
     if (state == ST_FOLLOW || state == ST_ELEVATOR) { Serial.println("서버 주행 중이라 시험할 수 없어요 (x 로 멈춘 뒤)"); return; }
     testStart();
   } else if (ch == 'v') {
