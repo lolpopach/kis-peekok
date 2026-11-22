@@ -74,8 +74,8 @@
 #define PWM_FREQ         200    // 모터 PWM 주파수(Hz) — 낮을수록 약한 세기에서도 바퀴가 돌아 천천히 달릴 수 있음
 #define MIN_PWM          (PWM_MAX * 80 / 255)    // 이보다 약하면 바퀴가 안 도는 세기 — 시리얼 'w' 로 찾아 맞추기. 0 이 아닌 값은 이 이상으로 올림
 #define SPEED_PWM        (PWM_MAX * 95 / 255)    // 선 따라갈 때 기본 세기 (처음 값 — 시리얼 + / - 로 바꾸면 보드에 기억)
-#define SPEED_DUTY       65     // 느리게 달리기: PULSE_MS 중 바퀴를 돌리는 비율(%) — 100 이면 끊지 않음. 시리얼 + / - 로 ±5 (보드에 기억)
-#define PULSE_MS         150    // 끊어 가기 한 주기(ms)
+#define SPEED_DUTY       50     // 느리게 달리기: PULSE_MS 중 바퀴를 돌리는 비율(%) — 100 이면 끊지 않음. 시리얼 + / - 로 ±5 (보드에 기억)
+#define PULSE_MS         200    // 끊어 가기 한 주기(ms)
 #define TURN_PWM         (PWM_MAX * 120 / 255)   // 제자리 회전 세기
 #define ROBOT_SPEED_MPS  0.30   // SPEED_PWM 으로 선을 따라갈 때 실제 속도(m/s) — 시리얼 'c' 명령으로 재서 맞추세요
 
@@ -136,6 +136,7 @@
 // U = 끝(T자)에서 1초 멈춤 → UTURN_BACK_MS 뒤로 → 제자리에서 돌아(두 바퀴 반대로) 왔던 선에 올라타기 → 앞으로 본선까지 가서 다음 글자로 회전
 // 예: "RURLULE" = 오른쪽 분기 우회전 → 끝 유턴 → 본선 우회전 → 왼쪽 분기 좌회전 → 끝 유턴 → 본선 좌회전 → 최종점 정지
 #define UTURN_DIR        'L'    // 유턴 방향 (제자리에서 왼쪽으로)
+#define SPIN_DUTY        50     // 제자리 회전·유턴을 끊어 가며 천천히: PULSE_MS 중 돌리는 비율(%) (시리얼 PspinDuty=값)
 #define UTURN_PWM        (PWM_MAX * 150 / 255)   // 제자리 유턴 세기 — 두 바퀴를 반대로, 끊지 않고 (시리얼 PuPwm=값)
 #define UTURN_IGNORE_MS  900    // 유턴: 처음 이 시간(바퀴 돌린 시간) 동안은 T자 가로선 등 선을 무시하고 돎 — 시리얼 < > 로 ±100 (일찍 서면 늘리고, 왔던 선을 지나쳐 더 돌면 줄이기)
 #define UTURN_BACK_MS    300    // 유턴 전에 뒤로 가는 시간 — 시리얼 { } 로 ±50

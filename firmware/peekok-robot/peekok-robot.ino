@@ -142,6 +142,9 @@
 #ifndef UTURN_BACK_MS
 #define UTURN_BACK_MS 300
 #endif
+#ifndef SPIN_DUTY
+#define SPIN_DUTY 50
+#endif
 #ifndef TURN_MODE
 #define TURN_MODE 0
 #endif
@@ -218,6 +221,7 @@ int P_FLICKER_MS = FLICKER_MS;
 int P_TEST_GIVEUP_MS = TEST_GIVEUP_MS;
 int P_UTURN_PWM = UTURN_PWM;
 int P_TURN_MODE = TURN_MODE;
+int P_SPIN_DUTY = SPIN_DUTY;
 #undef STEER_MIN
 #define STEER_MIN P_STEER_MIN
 #undef STEER_MAX
@@ -258,6 +262,8 @@ int P_TURN_MODE = TURN_MODE;
 #define UTURN_PWM P_UTURN_PWM
 #undef TURN_MODE
 #define TURN_MODE P_TURN_MODE
+#undef SPIN_DUTY
+#define SPIN_DUTY P_SPIN_DUTY
 
 void paramCommand(const char* line);
 
@@ -776,7 +782,7 @@ bool arcToLine(int dir, unsigned long ignoreMs = 0) {
 // 처음 ignoreMs 동안은 선을 무시(T자 가로선) → 도는 쪽 앞 센서가 왔던 선에 닿고 지나가면, 반대쪽 앞 센서가 닿거나 ARC_SETTLE_MS 뒤 멈춤
 bool spinUturn(int dir, unsigned long ignoreMs) {
   int savedDuty = speedDuty;
-  speedDuty = 100;
+  speedDuty = SPIN_DUTY;         // 제자리 회전도 끊어 가며 천천히 (세기는 그대로 둬서 헛돌지 않게)
   unsigned long m0 = moveMs, t0 = millis();
   moveLastAt = 0;
   bool leadSeen = false;
@@ -1383,6 +1389,7 @@ Param params[] = {
   {"uback", &uturnBackMs, 0, 3000, "유턴 전 뒤로(ms)"},
   {"uPwm", &P_UTURN_PWM, 0, 255, "제자리 회전·유턴 세기 (두 바퀴 반대로)"},
   {"turnMode", &P_TURN_MODE, 0, 1, "분기 회전: 0 앞으로 가며 돌기 · 1 제자리 회전"},
+  {"spinDuty", &P_SPIN_DUTY, 10, 100, "제자리 회전·유턴 끊어 가기 비율(%) — 낮을수록 천천히"},
   {"steerMin", &P_STEER_MIN, 0, 255, "꺾기 시작 세기"},
   {"steerMax", &P_STEER_MAX, 0, 400, "꺾기 최대 세기"},
   {"steerRamp", &P_STEER_RAMP_MS, 50, 3000, "꺾기 세지는 시간(ms)"},
