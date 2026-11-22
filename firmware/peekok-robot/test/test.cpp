@@ -7,6 +7,7 @@ unsigned long fake_millis = 0;
 int fake_pins[32] = {0};
 int fake_analog = 0;
 int fake_pwm[32] = {0};
+unsigned long fake_pulse_us = 0;
 FakeSerial Serial;
 FakeWiFi WiFi;
 String fake_response;
@@ -73,7 +74,7 @@ int main(int argc, char** argv) {
   fake_response = readFile((dir + "/to_5-1.txt").c_str());
   reportPassed(1);
   CHECK(fake_last_path == "/api/robot/progress?fmt=text", "보고 주소 /api/robot/progress?fmt=text");
-  CHECK(fake_last_body == "{\"passed\":\"1:b2\",\"next\":\"1:b3\",\"speed\":0.50}", "보고 내용 {passed, next, speed}");
+  CHECK(fake_last_body == String("{\"passed\":\"1:b2\",\"next\":\"1:b3\",\"speed\":") + String(ROBOT_SPEED_MPS, 2) + "}", "보고 내용 {passed, next, speed}");
   printf("     %s\n", fake_last_body.c_str());
 
   printf("== 엘리베이터: 로봇 화면의 '내렸어요' 로 재출발 ==\n");
@@ -100,21 +101,91 @@ int main(int argc, char** argv) {
   fake_pins[D3] = HIGH;
 
   printf("== 모터: L298N EN(PWM) + IN(방향) 방식 ==\n");
-  motor(5, 6, 7, 200, false);
-  CHECK(fake_pins[5] == HIGH && fake_pins[6] == LOW && fake_pwm[7] == 200, "앞으로: IN1 HIGH · IN2 LOW · EN 200");
-  motor(5, 6, 7, -150, false);
-  CHECK(fake_pins[5] == LOW && fake_pins[6] == HIGH && fake_pwm[7] == 150, "뒤로: IN1 LOW · IN2 HIGH · EN 150");
-  motor(5, 6, 7, 120, true);
-  CHECK(fake_pins[5] == LOW && fake_pins[6] == HIGH && fake_pwm[7] == 120, "반대 설정(INVERT): 방향만 바뀜");
+  motor(5, 6, 7, 600, false);
+  CHECK(fake_pins[5] == HIGH && fake_pins[6] == LOW && fake_pwm[7] == 600, "앞으로: IN1 HIGH · IN2 LOW · EN 600");
+  motor(5, 6, 7, -500, false);
+  CHECK(fake_pins[5] == LOW && fake_pins[6] == HIGH && fake_pwm[7] == 500, "뒤로: IN1 LOW · IN2 HIGH · EN 500");
+  motor(5, 6, 7, 450, true);
+  CHECK(fake_pins[5] == LOW && fake_pins[6] == HIGH && fake_pwm[7] == 450, "반대 설정(INVERT): 방향만 바뀜");
   motor(5, 6, 7, 0, false);
   CHECK(fake_pins[5] == LOW && fake_pins[6] == LOW && fake_pwm[7] == 0, "멈춤: IN 둘 다 LOW · EN 0");
   motor(5, 6, 7, 99999, false);
   CHECK(fake_pwm[7] == PWM_MAX, "세기는 PWM_MAX 까지");
+  printf("== 모터: 바퀴가 안 도는 약한 세기(MIN_PWM %d) ==\n", (int)MIN_PWM);
+  CHECK(deadzone(MIN_PWM - 10) == MIN_PWM && deadzone(-(MIN_PWM - 10)) == -MIN_PWM, "MIN_PWM 보다 조금 약하면 MIN_PWM 으로 올림");
+  CHECK(deadzone(MIN_PWM / 4) == 0 && deadzone(0) == 0, "아주 약하면 0 (멈춤)");
+  CHECK(deadzone(MIN_PWM + 50) == MIN_PWM + 50, "MIN_PWM 이상은 그대로");
   printf("== 모터: 점퍼 꽂은 방식(IN 핀에 PWM) ==\n");
-  motor(8, 9, -1, 300, false);
-  CHECK(fake_pwm[8] == 300 && fake_pwm[9] == 0, "앞으로: IN1 PWM · IN2 0");
-  motor(8, 9, -1, -300, false);
-  CHECK(fake_pwm[8] == 0 && fake_pwm[9] == 300, "뒤로: IN1 0 · IN2 PWM");
+  motor(8, 9, -1, 700, false);
+  CHECK(fake_pwm[8] == 700 && fake_pwm[9] == 0, "앞으로: IN1 PWM · IN2 0");
+  motor(8, 9, -1, -700, false);
+  CHECK(fake_pwm[8] == 0 && fake_pwm[9] == 700, "뒤로: IN1 0 · IN2 PWM");
+
+  printf("== 선 따라가기: 가운데 센서로 왼쪽 가장자리(EDGE_SIDE %c) ==\n", EDGE_SIDE);
+  fake_pins[PIN_SENSOR_LEFT] = LOW; fake_analog = 0;   // 좌우 센서는 바닥
+  fake_pins[PIN_SENSOR_MID] = HIGH;                    // 가운데 검정(선 안쪽)
+  edgeReset();
+  edgeFollow(SPEED_PWM);
+  CHECK(lastLeftPwm < lastRightPwm, "검정 → 왼쪽으로 꺾기 (왼쪽 바퀴가 느림)");
+  int gentle = lastRightPwm - lastLeftPwm;
+  fake_millis += EDGE_RAMP_MS;
+  edgeFollow(SPEED_PWM);
+  CHECK(lastRightPwm - lastLeftPwm > gentle, "검정이 오래 이어지면 더 세게 꺾기");
+  fake_pins[PIN_SENSOR_MID] = LOW;                     // 바닥(선 왼쪽 바깥)
+  edgeFollow(SPEED_PWM);
+  CHECK(lastLeftPwm > lastRightPwm && lastLeftPwm - lastRightPwm == 2 * EDGE_STEER_MIN, "바닥으로 바뀌면 → 오른쪽으로 살살 (세기 처음부터)");
+  fake_millis += EDGE_RAMP_MS * 3;
+  edgeFollow(SPEED_PWM);
+  CHECK(lastRightPwm < 0, "바닥이 오래 이어지면 제자리 회전에 가깝게 (안쪽 바퀴 뒤로)");
+
+  printf("== 교차로: 좌우 센서 ==\n");
+  junctionIgnoreUntil = 0; junctionSince = 0;
+  CHECK(!junctionSeen(true), "좌우 센서가 바닥이면 교차로 아님");
+  fake_pins[PIN_SENSOR_LEFT] = HIGH;
+  CHECK(!junctionSeen(true), "왼쪽 센서가 막 켜짐 → 아직 (잡음 거르기)");
+  fake_millis += JUNCTION_MS;
+  CHECK(junctionSeen(true), "JUNCTION_MS 이어지면 교차로");
+  CHECK(!junctionSeen(false), "서버 주행에서 예상 시간 전(문 닫힘)이면 무시");
+  junctionIgnoreUntil = fake_millis + 100; junctionSince = 0;
+  fake_millis += JUNCTION_MS + 10;
+  CHECK(!junctionSeen(true), "회전 직후(JUNCTION_COOLDOWN_MS)는 무시");
+  fake_pins[PIN_SENSOR_LEFT] = LOW;
+  fake_analog = 1000;                                  // 오른쪽(ESP8266 은 A0 아날로그) 검정
+  fake_millis += 200; junctionSince = 0;
+  junctionSeen(true); fake_millis += JUNCTION_MS;
+  CHECK(junctionSeen(true), "오른쪽 센서만 켜져도 교차로 (오른쪽 분기)");
+  fake_analog = 0;
+
+  printf("== 장애물: 초음파 ==\n");
+  blocked = false; nearCount = farCount = 0;
+  CHECK(!obstacleUpdate(12), "가까움 1번은 아직 (잡음)");
+  CHECK(obstacleUpdate(12), "가까움 2번 연속 → 멈춤");
+  CHECK(obstacleUpdate(-1) && obstacleUpdate(50) && obstacleUpdate(-1), "멂 3번까지는 계속 멈춤");
+  CHECK(!obstacleUpdate(60), "멂 4번 연속 → 다시 출발");
+  CHECK(!obstacleUpdate(25) && !obstacleUpdate(25), "멈춤·출발 거리 사이(25cm)는 상태 유지");
+  fake_pulse_us = 10 * 58;
+  CHECK(sonarCm() == (PIN_SONAR_TRIG < 0 ? -1 : 10), "메아리 580us = 10cm (초음파 없는 보드는 -1)");
+  fake_pulse_us = 0;
+
+  printf("== 코스 시험 RURLE (서버 없이) ==\n");
+  testRoute = "RURLE";
+  fake_pins[PIN_SENSOR_MID] = HIGH;
+  testStart();
+  CHECK(state == ST_TEST && routeIdx == 0, "시작");
+  fake_pins[PIN_SENSOR_MID] = LOW;
+  fake_millis += LINE_END_MS + 5;
+  testEvent('E');
+  CHECK(state == ST_IDLE && routeIdx == 1, "첫 글자 R 인데 선 끝을 만나면 → 멈추고 알려 줌");
+  testStart();
+  fake_millis += 1000;
+  testEvent('J');   // R: 회전 중 가운데 센서가 계속 바닥 → 선을 못 찾음
+  CHECK(state == ST_IDLE, "회전하다 선을 못 찾으면 멈춤");
+  testRoute = "E";
+  testStart();
+  testEvent('E');
+  CHECK(state == ST_IDLE && routeIdx == 1, "E: 선 끝에서 정지 (완료)");
+  testRoute = TEST_ROUTE;
+
   printf("== WiFi 이름 비교 (iPhone ’ 따옴표·대소문자·띄어쓰기) ==\n");
   {
     char a[48], b[48];
