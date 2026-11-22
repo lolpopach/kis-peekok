@@ -17,6 +17,7 @@
     location: saved.location || CFG.robotLocation,
     voice: saved.voice !== undefined ? saved.voice : CFG.voice,
     idleSec: saved.idleSec || CFG.idleTimeoutSec,
+    rotate: saved.rotate === 'ccw' ? 'ccw' : 'cw', // 세로 기기를 가로로 돌려 그릴 방향 (robot.html 머리 스크립트가 읽음)
     mode: 'stairs',
     current: null,
     stack: [],
@@ -398,7 +399,7 @@
     const cur = document.querySelector('.step.is-cur');
     const list = cur && cur.closest('.steps');
     if (list && list.scrollHeight > list.clientHeight + 1) {
-      const top = cur.getBoundingClientRect().top - list.getBoundingClientRect().top;
+      const top = KIS.rect(cur).top - KIS.rect(list).top;
       const bottom = top + cur.offsetHeight;
       if (top < 0 || bottom > list.clientHeight) list.scrollTo({ top: list.scrollTop + top - 8, behavior: 'smooth' });
     }
@@ -848,6 +849,7 @@
         </div>
         <div class="admin-opts">
           <label class="admin-opt"><span>음성 안내 기본값</span><select id="adm-voice"><option value="1" ${state.voice ? 'selected' : ''}>켜기</option><option value="0" ${!state.voice ? 'selected' : ''}>끄기</option></select></label>
+          <label class="admin-opt"><span>세로로 놓인 기기의 화면 방향</span><select id="adm-rotate"><option value="cw" ${state.rotate === 'cw' ? 'selected' : ''}>화면 위쪽이 기기 오른쪽</option><option value="ccw" ${state.rotate === 'ccw' ? 'selected' : ''}>화면 위쪽이 기기 왼쪽</option></select></label>
           <label class="admin-opt"><span>얼굴 화면으로 돌아가는 시간</span><select id="adm-idle">${[30, 60, 90, 120, 180, 300].map((s) => `<option value="${s}" ${s === state.idleSec ? 'selected' : ''}>${s}초</option>`).join('')}</select></label>
           ${hooks.adminExtra ? hooks.adminExtra() : ''}
           <button class="btn" data-adm="fullscreen">${I('grid')}전체 화면</button>
@@ -886,7 +888,9 @@
       state.location = pending;
       state.voice = $('#adm-voice').value === '1';
       state.idleSec = Number($('#adm-idle').value);
-      store.set({ location: state.location, voice: state.voice, idleSec: state.idleSec });
+      state.rotate = $('#adm-rotate').value === 'ccw' ? 'ccw' : 'cw';
+      if (state.rotate === 'ccw') document.documentElement.setAttribute('data-rot', 'ccw'); else document.documentElement.removeAttribute('data-rot');
+      store.set({ location: state.location, voice: state.voice, idleSec: state.idleSec, rotate: state.rotate });
       renderSoundBtn();
       closeAdmin();
       goHome();

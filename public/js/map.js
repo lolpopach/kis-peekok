@@ -258,7 +258,9 @@ KIS.MapView = (function () {
       const xs = points.map((p) => p[0]), ys = points.map((p) => p[1]);
       let x0 = Math.min(...xs) - pad, x1 = Math.max(...xs) + pad, y0 = Math.min(...ys) - pad, y1 = Math.max(...ys) + pad;
       // 화면 비율 맞추기
-      const box = this.svg.getBoundingClientRect();
+      // 화면을 돌려 써도(항상 가로) 맞도록 화면 좌표가 아닌 배치 크기로 비율을 잰다
+      const box = { width: this.svg.clientWidth, height: this.svg.clientHeight };
+      if (!box.width || !box.height) { const r = this.svg.getBoundingClientRect(); box.width = r.width; box.height = r.height; }
       const ar = box.width && box.height ? box.width / box.height : 1.5;
       let w = Math.max(x1 - x0, minW), h = Math.max(y1 - y0, minW / ar);
       if (w / h < ar) w = h * ar; else h = w / ar;
@@ -278,6 +280,15 @@ KIS.MapView = (function () {
     }
 
     toUser(clientX, clientY) {
+      // 화면을 돌려 쓰는 중(항상 가로)이면 getScreenCTM 이 CSS 회전을 빼먹는 브라우저가 있어 직접 계산 (viewBox, xMidYMid meet)
+      if (window.KIS.rot && KIS.rot()) {
+        const p = KIS.unrotate(clientX, clientY), r = KIS.rect(this.svg), vb = this.svg.viewBox.baseVal;
+        if (vb && vb.width && r.width) {
+          const k = Math.min(r.width / vb.width, r.height / vb.height);
+          const ox = r.left + (r.width - vb.width * k) / 2, oy = r.top + (r.height - vb.height * k) / 2;
+          return [vb.x + (p.x - ox) / k, vb.y + (p.y - oy) / k];
+        }
+      }
       const m = this.svg.getScreenCTM();
       if (!m) return [0, 0];
       const p = new DOMPoint(clientX, clientY).matrixTransform(m.inverse());
