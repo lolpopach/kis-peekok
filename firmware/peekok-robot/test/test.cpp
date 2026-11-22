@@ -247,6 +247,13 @@ int main(int argc, char** argv) {
   CHECK(state == ST_IDLE, "TRACE_MS 가 지나면 멈춤");
   setTrim(0);
 
+  printf("== 제자리 회전 방향 ==\n");
+  fake_pins[PIN_FRONT_LEFT] = LOW; fake_pins[PIN_FRONT_RIGHT] = LOW;
+  spinDrive(1);
+  CHECK(lastLeftPwm > 0 && lastRightPwm < 0, "우회전 = 왼쪽 바퀴 앞으로 · 오른쪽 바퀴 뒤로");
+  spinDrive(-1);
+  CHECK(lastLeftPwm < 0 && lastRightPwm > 0, "좌회전 = 왼쪽 바퀴 뒤로 · 오른쪽 바퀴 앞으로");
+
   printf("== 분기 시험 (j): 옆에 선이 보인 쪽으로 ==\n");
   testRoute = "??";
   testStart();

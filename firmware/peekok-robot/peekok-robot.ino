@@ -515,13 +515,15 @@ bool reportPassed(int i) {
 // dir: -1 왼쪽, +1 오른쪽. minMs 가 지나기 전에는 선을 무시(유턴용).
 // 제자리에서 돌다가 도는 쪽 앞 센서(오른쪽으로 돌면 앞 오른쪽)가 새 선을 잡으면 멈춘다.
 // 처음 minMs 동안은 선을 무시(지금 서 있는 선을 벗어나기), 그 뒤에는 바닥 → 검정으로 바뀌는 순간에 멈춤.
+// 제자리 회전 한 번: dir +1 오른쪽 = 왼쪽 바퀴 앞으로 · 오른쪽 바퀴 뒤로, -1 왼쪽은 반대
+void spinDrive(int dir) { driveP(dir * TURN_PWM, dir * -TURN_PWM); }
 // minMs·TURN_TIMEOUT_MS 는 바퀴를 실제로 돌린 시간 기준 (끊어 가기로 느려도 같은 각도)
 bool spinToLine(int dir, unsigned long minMs) {
   unsigned long m0 = moveMs, t0 = millis();
   moveLastAt = 0;
   bool sawFloor = false;
   while (moveMs - m0 < TURN_TIMEOUT_MS && millis() - t0 < TURN_TIMEOUT_MS * 12UL) {
-    driveP(dir * -TURN_PWM, dir * TURN_PWM);
+    spinDrive(dir);
     bool c = dir > 0 ? sFrontR() : sFrontL();
     if (moveMs - m0 >= minMs) {
       if (!c) sawFloor = true;
