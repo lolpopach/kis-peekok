@@ -142,6 +142,9 @@
 #ifndef UTURN_BACK_MS
 #define UTURN_BACK_MS 300
 #endif
+#ifndef TURN_MODE
+#define TURN_MODE 0
+#endif
 #ifndef UTURN_PWM
 #define UTURN_PWM (PWM_MAX * 150 / 255)
 #endif
@@ -214,6 +217,7 @@ int P_LIFT_MS = LIFT_MS;
 int P_FLICKER_MS = FLICKER_MS;
 int P_TEST_GIVEUP_MS = TEST_GIVEUP_MS;
 int P_UTURN_PWM = UTURN_PWM;
+int P_TURN_MODE = TURN_MODE;
 #undef STEER_MIN
 #define STEER_MIN P_STEER_MIN
 #undef STEER_MAX
@@ -252,6 +256,8 @@ int P_UTURN_PWM = UTURN_PWM;
 #define TEST_GIVEUP_MS P_TEST_GIVEUP_MS
 #undef UTURN_PWM
 #define UTURN_PWM P_UTURN_PWM
+#undef TURN_MODE
+#define TURN_MODE P_TURN_MODE
 
 void paramCommand(const char* line);
 
@@ -810,7 +816,7 @@ bool doTurn(char t, char want, bool atJunction) {
     stopMotors();
     if (atJunction) { Serial.printf("[회전] %s 분기 — %d초 멈춘 뒤 돌아요\n", t == 'L' ? "왼쪽" : "오른쪽", TURN_PAUSE_MS / 1000); delay(TURN_PAUSE_MS); }
     if (turnForwardMs > 0) forwardFor(turnForwardMs);
-    ok = arcToLine(t == 'L' ? -1 : 1);
+    ok = TURN_MODE == 1 ? spinUturn(t == 'L' ? -1 : 1, 0) : arcToLine(t == 'L' ? -1 : 1);   // 1 제자리 회전 · 0 앞으로 가며 돌기
   }
   else if (t == 'U') { ok = spinToLine(1, UTURN_MIN_MS); }
   if (ok && want != '-') heading = want;
@@ -1374,7 +1380,8 @@ Param params[] = {
   {"tfwd", &turnForwardMs, 0, 1500, "회전 전 전진(ms)"},
   {"uign", &uturnIgnoreMs, 0, 5000, "유턴: 처음 선 무시(ms)"},
   {"uback", &uturnBackMs, 0, 3000, "유턴 전 뒤로(ms)"},
-  {"uPwm", &P_UTURN_PWM, 0, 255, "제자리 유턴 세기 (두 바퀴 반대로)"},
+  {"uPwm", &P_UTURN_PWM, 0, 255, "제자리 회전·유턴 세기 (두 바퀴 반대로)"},
+  {"turnMode", &P_TURN_MODE, 0, 1, "분기 회전: 0 앞으로 가며 돌기 · 1 제자리 회전"},
   {"steerMin", &P_STEER_MIN, 0, 255, "꺾기 시작 세기"},
   {"steerMax", &P_STEER_MAX, 0, 400, "꺾기 최대 세기"},
   {"steerRamp", &P_STEER_RAMP_MS, 50, 3000, "꺾기 세지는 시간(ms)"},
