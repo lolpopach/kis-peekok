@@ -134,12 +134,14 @@ char actionCode(const String& a) {
 
 // ───────── 서버 통신 ─────────
 // 응답이 200 이면 true, 본문은 out 에
+String robotKey;   // config.h 의 ROBOT_KEY 에서 앞뒤 공백을 뺀 값 (setup 에서 채움)
+
 bool request(bool post, const String& path, const String& body, String& out) {
   if (WiFi.status() != WL_CONNECTED) return false;
   http.setReuse(true);
   http.setTimeout(8000);
   if (!http.begin(tls, SERVER_HOST, 443, path, true)) return false;
-  http.addHeader("X-Robot-Key", ROBOT_KEY);
+  http.addHeader("X-Robot-Key", robotKey.c_str());
   http.addHeader("User-Agent", "peekok-robot/1.0");
   int code;
   if (post) {
@@ -149,7 +151,10 @@ bool request(bool post, const String& path, const String& body, String& out) {
     code = http.GET();
   }
   if (code == 200) out = http.getString();
-  else Serial.printf("[http] %s %s → %d\n", post ? "POST" : "GET", path.c_str(), code);
+  else {
+    Serial.printf("[http] %s %s → %d\n", post ? "POST" : "GET", path.c_str(), code);
+    if (code == 401) Serial.printf("[http] 401 = 로봇 키가 서버(Cloudflare)와 달라요. 서버 답: %s\n", http.getString().c_str());
+  }
   http.end();
   return code == 200;
 }
@@ -482,6 +487,13 @@ void setup() {
   Serial.begin(115200);
   delay(100);
   Serial.println("\n피콕 로봇 몸체 시작");
+  robotKey = ROBOT_KEY;
+  robotKey.trim();
+  // 키 값은 찍지 않고 길이만 보여 준다 (Cloudflare 에 넣은 키 길이와 견줘 보기용)
+  if (robotKey.length() >= 6)
+    Serial.printf("로봇 키: %u자\n", (unsigned)robotKey.length());
+  else
+    Serial.printf("로봇 키: %u자 — 너무 짧거나 비어 있어요. config.h 를 확인하세요\n", (unsigned)robotKey.length());
   pinMode(PIN_LEFT_A, OUTPUT); pinMode(PIN_LEFT_B, OUTPUT);
   pinMode(PIN_RIGHT_A, OUTPUT); pinMode(PIN_RIGHT_B, OUTPUT);
   if (PIN_LEFT_EN >= 0) pinMode(PIN_LEFT_EN, OUTPUT);
