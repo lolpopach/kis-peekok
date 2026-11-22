@@ -301,6 +301,17 @@ int main(int argc, char** argv) {
   CHECK(!junctionSeen(true), "앞 오른쪽을 본 지 너무 오래됐으면 무시");
   fake_analog = 0; junctionSince = 0;
 
+  printf("== 깜빡임 거르기 (떠 있는 핀) ==\n");
+  { Flicker f = {false, {0, 0, 0, 0}, 0, false}; bool any = false;
+    for (int i = 0; i < 20; i++) { fake_millis += 100; if (steadyRead(f, i % 2 == 0, "시험")) any = (i > 4) ? true : any; }
+    CHECK(!any && f.noisy, "0.1초마다 바뀌면 깜빡임으로 보고 무시");
+    fake_millis += FLICKER_MS + 10;
+    CHECK(steadyRead(f, true, "시험") == true && !f.noisy, "1초 동안 안정되면 다시 씀");
+    Flicker g = {false, {0, 0, 0, 0}, 0, false};
+    fake_millis += 10; steadyRead(g, true, "시험"); fake_millis += 200;
+    CHECK(steadyRead(g, true, "시험") == true, "진짜 선(한 번 켜짐)은 그대로");
+    fake_millis += 100; steadyRead(g, false, "시험"); }
+
   printf("== 제자리 회전 방향 ==\n");
   fake_pins[PIN_FRONT_LEFT] = LOW; fake_pins[PIN_FRONT_RIGHT] = LOW;
   spinDrive(1);

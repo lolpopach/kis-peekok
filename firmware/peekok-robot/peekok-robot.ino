@@ -124,6 +124,9 @@
 #ifndef RECOVER_MAX_MS
 #define RECOVER_MAX_MS 1500
 #endif
+#ifndef FLICKER_MS
+#define FLICKER_MS 1000
+#endif
 #ifndef TURN_PAUSE_MS
 #define TURN_PAUSE_MS 1000
 #endif
@@ -456,13 +459,28 @@ int rearLostDir() {
 // 새로 선을 잡은 뒤(회전·출발) 따라가기 상태를 처음부터
 void followReset() { followSide = -9; followSince = millis(); lineSeenAt = millis(); lastFollowAt = 0; allBlackSince = 0; counterUntil = 0; recoverDir = 0; rearLSince = rearRSince = 0; frontLSeenMove = frontRSeenMove = 0; }
 // 좌우 센서가 JUNCTION_MS 이상 선을 보면 교차로 (allowed 가 false 거나 회전 직후면 무시)
+// 깜빡임 거르기: 값이 FLICKER_MS 안에 4번 넘게 바뀌면(떠 있는 핀·잡음) 그 센서는 바닥으로 봄.
+// 진짜 선은 한 번 지나가며 많아야 두 번 바뀜.
+struct Flicker { bool last; unsigned long t[4]; int i; bool noisy; };
+Flicker flkL = {false, {0, 0, 0, 0}, 0, false}, flkR = {false, {0, 0, 0, 0}, 0, false};
+bool steadyRead(Flicker& f, bool v, const char* name) {
+  unsigned long now = millis();
+  if (v != f.last) { f.last = v; f.t[f.i] = now ? now : 1; f.i = (f.i + 1) % 4; }
+  unsigned long oldest = f.t[f.i];   // 4번 전에 바뀐 때
+  bool noisy = oldest && now - oldest < FLICKER_MS;
+  if (noisy != f.noisy) { f.noisy = noisy; Serial.printf("[깜빡임] %s 센서 %s\n", name, noisy ? "값이 너무 자주 바뀜 → 무시" : "안정됨 → 다시 씀"); }
+  return noisy ? false : v;
+}
+bool rearL() { return steadyRead(flkL, sLeft(), "뒤 왼쪽"); }
+bool rearR() { return steadyRead(flkR, sRight(), "뒤 오른쪽"); }
 bool junctionSeen(bool allowed) {
   unsigned long now = millis();
   if (sFrontL()) frontLSeenMove = moveMs + 1;
   if (sFrontR()) frontRSeenMove = moveMs + 1;
+  bool rl = rearL(), rr = rearR();
   // 진짜 분기는 앞 센서가 먼저 지나가고 뒤 센서가 닿음 → 뒤 센서만 깜빡이는 잡음은 무시
-  bool l = sLeft() && frontLSeenMove && moveMs + 1 - frontLSeenMove <= BRANCH_PAIR_MS;
-  bool r = sRight() && frontRSeenMove && moveMs + 1 - frontRSeenMove <= BRANCH_PAIR_MS;
+  bool l = rl && frontLSeenMove && moveMs + 1 - frontLSeenMove <= BRANCH_PAIR_MS;
+  bool r = rr && frontRSeenMove && moveMs + 1 - frontRSeenMove <= BRANCH_PAIR_MS;
   if (!junctionArmed) {               // 옆 센서 둘 다 바닥을 (움직이며) 0.1초 보면 다시 셀 준비
     if (!l && !r) { if (!sideClearSince) sideClearSince = moveMs + 1; if (moveMs + 1 - sideClearSince >= 100) junctionArmed = true; }
     else sideClearSince = 0;
