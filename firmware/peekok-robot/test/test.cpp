@@ -151,6 +151,7 @@ int main(int argc, char** argv) {
   setTrim(5); CHECK(motorTrim == (float)TRIM_MAX, "보정 한계 TRIM_MAX");
   setTrim(-5); CHECK(motorTrim == -(float)TRIM_MAX, "보정 한계 -TRIM_MAX");
   setTrim(0);
+  if (TRIM_LEARN > 0) {
   fake_pins[PIN_FRONT_LEFT] = LOW; fake_pins[PIN_FRONT_RIGHT] = LOW;
   followReset(); lineFollow(SPEED_PWM);
   fake_pins[PIN_FRONT_LEFT] = HIGH;                    // 앞 왼쪽만 자꾸 켜짐 = 오른쪽으로 쏠림 = 왼쪽이 셈
@@ -166,6 +167,7 @@ int main(int argc, char** argv) {
   for (int i = 0; i < 20; i++) { fake_millis += 10; lineFollow(SPEED_PWM); }
   CHECK(motorTrim > before, "오른쪽 센서로 바로잡으면 반대로 (왼쪽을 세게)");
   fake_pins[PIN_FRONT_RIGHT] = LOW;
+  }
   setTrim(0);
 
   printf("== 흔들림 줄이기: 바로잡기 끝나면 반대로 살짝 ==\n");

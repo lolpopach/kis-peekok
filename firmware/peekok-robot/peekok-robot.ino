@@ -642,7 +642,8 @@ const char* testRoute = TEST_ROUTE;
 void testStart() {
   routeIdx = 0;
   blocked = false; nearCount = farCount = 0;
-  junctionIgnoreMove = moveMs + JUNCTION_COOLDOWN_MS;
+  junctionIgnoreMove = moveMs;          // 출발 때는 시간으로 막지 않음 (출발점 가까운 분기도 셈)
+  junctionArmed = false; sideClearSince = 0;   // 옆 센서가 바닥을 0.1초 보면 바로 셈
   junctionSince = 0;
   testLastEvent = millis();
   followReset();
