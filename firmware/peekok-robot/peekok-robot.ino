@@ -145,6 +145,9 @@
 #ifndef UTURN_DIR
 #define UTURN_DIR 'L'
 #endif
+#ifndef ARC_SETTLE_MS
+#define ARC_SETTLE_MS 300
+#endif
 #ifndef TURN_PAUSE_MS
 #define TURN_PAUSE_MS 1000
 #endif
@@ -678,6 +681,7 @@ bool arcToLine(int dir, unsigned long ignoreMs = 0) {
   unsigned long m0 = moveMs, t0 = millis();
   moveLastAt = 0;
   bool leadSeen = false;
+  unsigned long passedAt = 0;
   while (moveMs - m0 < ARC_TIMEOUT_MS + ignoreMs && millis() - t0 < (ARC_TIMEOUT_MS + ignoreMs) * 12UL) {
     driveP(dir > 0 ? ARC_PWM : ARC_INNER_PWM, dir > 0 ? ARC_INNER_PWM : ARC_PWM);
     logDrive(dir > 0 ? "우회전" : "좌회전");
@@ -686,6 +690,10 @@ bool arcToLine(int dir, unsigned long ignoreMs = 0) {
     if (moveMs - m0 < ignoreMs) { yield(); continue; }
     if (!leadSeen) { if (lead) { leadSeen = true; Serial.printf("[회전] 앞 %s 센서가 새 선에 닿음\n", dir > 0 ? "오른쪽" : "왼쪽"); } }
     else if (trail) { stopMotors(); Serial.printf("[회전] 앞 %s 센서도 닿음 → 직진 구간\n", dir > 0 ? "왼쪽" : "오른쪽"); delay(80); return true; }
+    else if (!lead) {            // 도는 쪽 앞 센서가 선을 지나감 = 선이 두 센서 사이 → ARC_SETTLE_MS 안에 반대쪽이 안 닿으면 그대로 멈춤
+      if (!passedAt) passedAt = moveMs + 1;
+      if (moveMs + 1 - passedAt >= ARC_SETTLE_MS) { stopMotors(); Serial.println("[회전] 선이 앞 센서 사이에 들어옴 → 직진 구간"); delay(80); return true; }
+    }
     yield();
   }
   stopMotors();
