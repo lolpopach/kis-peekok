@@ -1096,6 +1096,14 @@ int wifiFails = 0;
 int shownReason = -1;
 void wifiTick();
 
+int sensorPinMode(int pin) {
+#if defined(ESP32)
+  return (pin >= 34 && pin <= 39) ? INPUT : INPUT_PULLUP;
+#else
+  return pin == D0 ? INPUT : INPUT_PULLUP;   // ESP8266 GPIO16 은 풀업 없음
+#endif
+}
+
 void setup() {
   Serial.begin(115200);
   delay(100);
@@ -1104,9 +1112,10 @@ void setup() {
   pinMode(PIN_RIGHT_A, OUTPUT); pinMode(PIN_RIGHT_B, OUTPUT);
   if (PIN_LEFT_EN >= 0) pinMode(PIN_LEFT_EN, OUTPUT);
   if (PIN_RIGHT_EN >= 0) pinMode(PIN_RIGHT_EN, OUTPUT);
-  pinMode(PIN_FRONT_LEFT, INPUT); pinMode(PIN_FRONT_RIGHT, INPUT);
-  if (PIN_SENSOR_LEFT >= 0 && !SENSOR_LEFT_ANALOG) pinMode(PIN_SENSOR_LEFT, INPUT);
-  if (PIN_SENSOR_RIGHT >= 0 && !SENSOR_RIGHT_ANALOG) pinMode(PIN_SENSOR_RIGHT, INPUT);
+  // 라인 센서 DO: 보드 안 풀업을 켜서 선이 헐겁거나 모듈 출력이 약해도 값이 떠서 깜빡이지 않게 (34~39 는 풀업 없음)
+  pinMode(PIN_FRONT_LEFT, sensorPinMode(PIN_FRONT_LEFT)); pinMode(PIN_FRONT_RIGHT, sensorPinMode(PIN_FRONT_RIGHT));
+  if (PIN_SENSOR_LEFT >= 0 && !SENSOR_LEFT_ANALOG) pinMode(PIN_SENSOR_LEFT, sensorPinMode(PIN_SENSOR_LEFT));
+  if (PIN_SENSOR_RIGHT >= 0 && !SENSOR_RIGHT_ANALOG) pinMode(PIN_SENSOR_RIGHT, sensorPinMode(PIN_SENSOR_RIGHT));
   if (PIN_SONAR_TRIG >= 0) { pinMode(PIN_SONAR_TRIG, OUTPUT); digitalWrite(PIN_SONAR_TRIG, LOW); pinMode(PIN_SONAR_ECHO, INPUT); }
   pinMode(PIN_BUTTON, INPUT_PULLUP);
   pinMode(PIN_LED, OUTPUT);

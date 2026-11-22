@@ -26,7 +26,7 @@
 #define PIN_RIGHT_B      26   // L298N IN4
 #define PIN_FRONT_LEFT   14   // 앞 왼쪽 라인 센서 DO
 #define PIN_FRONT_RIGHT  33   // 앞 오른쪽 라인 센서 DO
-#define PIN_SENSOR_LEFT  35   // 차체 왼쪽(바깥·뒤) 라인 센서 DO — 32 는 앞 오른쪽(33)과 신호가 옮겨붙어 35 로 옮김 (입력 전용 핀)
+#define PIN_SENSOR_LEFT  23   // 차체 왼쪽(바깥·뒤) 라인 센서 DO — 32 는 앞 오른쪽(33)과 신호가 옮겨붙고, 35 는 풀업이 없어 떠서 23 으로
 #define PIN_SENSOR_RIGHT 27   // 차체 오른쪽(바깥) 라인 센서 DO (27 은 ADC2 라 WiFi 중엔 아날로그로 못 읽음)
 #define SENSOR_LEFT_ANALOG  0  // 옆 센서를 AO(아날로그)로 읽을 때만 1 — ESP32 는 ADC1 핀(32~39)만
 #define SENSOR_RIGHT_ANALOG 0
@@ -106,7 +106,7 @@
 #define TURN_FORWARD_MS  0      // 교차로 감지 뒤 바퀴 축이 교차점에 오도록 더 가는 시간 (처음 값 — 시리얼 , . 로 ±20ms, 보드에 기억)
 #define CROSS_CLEAR_MS   250    // 교차로를 곧장 지날 때 핸들을 고정하고 가는 시간
 #define TURN_PAUSE_MS    1000   // 분기를 알아보면 이만큼 멈춘 뒤 회전
-#define ARC_PWM          (PWM_MAX * 120 / 255)   // 앞으로 가며 돌 때 바깥 바퀴 세기 (우회전이면 왼쪽 바퀴)
+#define ARC_PWM          (PWM_MAX * 100 / 255)   // 앞으로 가며 돌 때 바깥 바퀴 세기 (우회전이면 왼쪽 바퀴)
 #define ARC_INNER_PWM    0      // 앞으로 가며 돌 때 안쪽 바퀴 세기 (0 = 멈춤, 더 크게 돌려면 음수는 쓰지 말고 0)
 #define ARC_TIMEOUT_MS   5000   // 이 시간(바퀴 돌린 시간) 안에 앞 센서 둘이 새 선에 안 닿으면 회전 실패
 #define RECOVER_ENABLE   0      // 선 되찾기(앞 센서가 놓치면 뒤 센서 쪽으로 꺾기) 쓰기 1 / 안 쓰기 0
