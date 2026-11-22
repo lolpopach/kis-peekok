@@ -264,6 +264,7 @@ int main(int argc, char** argv) {
   CHECK(junctionSeen(true), "그 다음 선 = 다음 교차로");
   fake_analog = 0;
 
+  if (RECOVER_ENABLE) {
   printf("== 선 되찾기: 뒤 센서는 방향만, 다시 잡는 건 앞 센서 ==\n");
   fake_pins[PIN_FRONT_LEFT] = LOW; fake_pins[PIN_FRONT_RIGHT] = LOW;
   followReset();
@@ -287,6 +288,7 @@ int main(int argc, char** argv) {
   followReset(); fake_analog = 1000; fake_millis += 10; lineFollow(SPEED_PWM, false);
   CHECK(recoverDir == 0 && lastLeftPwm == lastRightPwm, "분기 시험·서버 주행(sideRecover 끔)에서는 뒤 센서로 꺾지 않음");
   fake_analog = 0;
+  }
 
   printf("== 분기는 앞 → 뒤 순서로 ==\n");
   junctionArmed = true; junctionIgnoreMove = 0; junctionSince = 0; frontRSeenMove = 0;

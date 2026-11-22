@@ -124,6 +124,21 @@
 #ifndef RECOVER_MAX_MS
 #define RECOVER_MAX_MS 1500
 #endif
+#ifndef TURN_PAUSE_MS
+#define TURN_PAUSE_MS 1000
+#endif
+#ifndef ARC_PWM
+#define ARC_PWM (PWM_MAX * 120 / 255)
+#endif
+#ifndef ARC_INNER_PWM
+#define ARC_INNER_PWM 0
+#endif
+#ifndef ARC_TIMEOUT_MS
+#define ARC_TIMEOUT_MS 5000
+#endif
+#ifndef RECOVER_ENABLE
+#define RECOVER_ENABLE 0
+#endif
 #ifndef SPIN_SETTLE_MS
 #define SPIN_SETTLE_MS 600
 #endif
@@ -395,7 +410,7 @@ void lineFollow(int base, bool sideRecover = false) {
   // 선 되찾기 (sideRecover: 선 시험·속도 재기·모터 맞추기에서만): 앞 두 센서가 다 놓쳤는데 뒤 센서 한쪽이 선을 보면
   // 그쪽으로 크게 꺾기 시작하고, 뒤 센서가 선을 벗어나도 계속 꺾다가 앞 센서가 선을 다시 잡는 순간 평소 따라가기로 돌아감.
   // 뒤 센서는 방향만 알려 줄 뿐, 선을 따라가는 건 언제나 앞 센서.
-  if (sideRecover) {
+  if (sideRecover && RECOVER_ENABLE) {
     if (recoverDir) {
       if (fl || fr) { Serial.println("[선 되찾기] 앞 센서가 선을 다시 잡음"); recoverDir = 0; }
       else if (moveMs - recoverStartMove > RECOVER_MAX_MS) { Serial.println("[선 되찾기] 못 찾음 — 그만둠"); recoverDir = 0; }
@@ -603,6 +618,23 @@ bool spinToLine(int dir, unsigned long minMs) {
   stopMotors();
   return phase >= 1;             // 선에 닿기라도 했으면 성공으로 봄
 }
+// 앞으로 가면서 도는 회전 (제자리 회전은 모터가 잘 못 함): 우회전이면 왼쪽 바퀴만 앞으로, 오른쪽 바퀴는 ARC_INNER_PWM.
+// 도는 쪽 앞 센서(우회전이면 앞 오른쪽)가 새 선에 닿고 → 이어서 반대쪽 앞 센서(앞 왼쪽)가 닿으면 직진 구간으로 보고 멈춤.
+bool arcToLine(int dir) {
+  unsigned long m0 = moveMs, t0 = millis();
+  moveLastAt = 0;
+  bool leadSeen = false;
+  while (moveMs - m0 < ARC_TIMEOUT_MS && millis() - t0 < ARC_TIMEOUT_MS * 12UL) {
+    driveP(dir > 0 ? ARC_PWM : ARC_INNER_PWM, dir > 0 ? ARC_INNER_PWM : ARC_PWM);
+    bool lead = dir > 0 ? sFrontR() : sFrontL();
+    bool trail = dir > 0 ? sFrontL() : sFrontR();
+    if (!leadSeen) { if (lead) { leadSeen = true; Serial.printf("[회전] 앞 %s 센서가 새 선에 닿음\n", dir > 0 ? "오른쪽" : "왼쪽"); } }
+    else if (trail) { stopMotors(); Serial.printf("[회전] 앞 %s 센서도 닿음 → 직진 구간\n", dir > 0 ? "왼쪽" : "오른쪽"); delay(80); return true; }
+    yield();
+  }
+  stopMotors();
+  return leadSeen;               // 새 선에 닿기라도 했으면 이어서 따라가 봄
+}
 // 핸들을 고정하고 곧장 ms 동안 (교차로 통과·바퀴 축 맞추기)
 // ms 는 바퀴를 실제로 돌린 시간 기준 (끊어 가기로 느려도 같은 거리)
 void forwardFor(unsigned long ms) {
@@ -615,7 +647,12 @@ void forwardFor(unsigned long ms) {
 bool doTurn(char t, char want, bool atJunction) {
   bool ok = true;
   if (t == 'S') { if (atJunction) forwardFor(CROSS_CLEAR_MS); }
-  else if (t == 'L' || t == 'R') { forwardFor(turnForwardMs); ok = spinToLine(t == 'L' ? -1 : 1, TURN_MIN_MS); }
+  else if (t == 'L' || t == 'R') {
+    stopMotors();
+    if (atJunction) { Serial.printf("[회전] %s 분기 — %d초 멈춘 뒤 돌아요\n", t == 'L' ? "왼쪽" : "오른쪽", TURN_PAUSE_MS / 1000); delay(TURN_PAUSE_MS); }
+    if (turnForwardMs > 0) forwardFor(turnForwardMs);
+    ok = arcToLine(t == 'L' ? -1 : 1);
+  }
   else if (t == 'U') { ok = spinToLine(1, UTURN_MIN_MS); }
   if (ok && want != '-') heading = want;
   junctionIgnoreMove = moveMs + JUNCTION_COOLDOWN_MS;   // 방금 지난 교차로 선을 다시 세지 않게 (움직인 시간 기준)

@@ -74,8 +74,8 @@
 #define PWM_FREQ         200    // 모터 PWM 주파수(Hz) — 낮을수록 약한 세기에서도 바퀴가 돌아 천천히 달릴 수 있음
 #define MIN_PWM          (PWM_MAX * 80 / 255)    // 이보다 약하면 바퀴가 안 도는 세기 — 시리얼 'w' 로 찾아 맞추기. 0 이 아닌 값은 이 이상으로 올림
 #define SPEED_PWM        (PWM_MAX * 95 / 255)    // 선 따라갈 때 기본 세기 (처음 값 — 시리얼 + / - 로 바꾸면 보드에 기억)
-#define SPEED_DUTY       40     // 느리게 달리기: PULSE_MS 중 바퀴를 돌리는 비율(%) — 100 이면 끊지 않음. 시리얼 + / - 로 ±5 (보드에 기억)
-#define PULSE_MS         250    // 끊어 가기 한 주기(ms)
+#define SPEED_DUTY       65     // 느리게 달리기: PULSE_MS 중 바퀴를 돌리는 비율(%) — 100 이면 끊지 않음. 시리얼 + / - 로 ±5 (보드에 기억)
+#define PULSE_MS         150    // 끊어 가기 한 주기(ms)
 #define TURN_PWM         (PWM_MAX * 120 / 255)   // 제자리 회전 세기
 #define ROBOT_SPEED_MPS  0.30   // SPEED_PWM 으로 선을 따라갈 때 실제 속도(m/s) — 시리얼 'c' 명령으로 재서 맞추세요
 
@@ -103,8 +103,13 @@
 #define BRANCH_PAIR_MS   600   // 뒤 센서가 선을 볼 때, 같은 쪽 앞 센서가 이 시간(바퀴 돌린 시간) 안에 검정을 봤어야 분기 (앞 → 뒤 순서)
 #define JUNCTION_COOLDOWN_MS 800 // 회전·통과 뒤 바퀴를 이만큼 돌릴 때까지(움직인 시간) 옆 센서를 무시 (방금 지난 선을 다시 세지 않게)
 #define JUNCTION_GATE    0.45   // 다음 노드까지 예상 시간의 이 비율이 지나기 전 교차로 신호는 무시 (서버 주행만)
-#define TURN_FORWARD_MS  250    // 교차로 감지 뒤 바퀴 축이 교차점에 오도록 더 가는 시간 (처음 값 — 시리얼 , . 로 ±20ms, 보드에 기억)
+#define TURN_FORWARD_MS  0      // 교차로 감지 뒤 바퀴 축이 교차점에 오도록 더 가는 시간 (처음 값 — 시리얼 , . 로 ±20ms, 보드에 기억)
 #define CROSS_CLEAR_MS   250    // 교차로를 곧장 지날 때 핸들을 고정하고 가는 시간
+#define TURN_PAUSE_MS    1000   // 분기를 알아보면 이만큼 멈춘 뒤 회전
+#define ARC_PWM          (PWM_MAX * 120 / 255)   // 앞으로 가며 돌 때 바깥 바퀴 세기 (우회전이면 왼쪽 바퀴)
+#define ARC_INNER_PWM    0      // 앞으로 가며 돌 때 안쪽 바퀴 세기 (0 = 멈춤, 더 크게 돌려면 음수는 쓰지 말고 0)
+#define ARC_TIMEOUT_MS   5000   // 이 시간(바퀴 돌린 시간) 안에 앞 센서 둘이 새 선에 안 닿으면 회전 실패
+#define RECOVER_ENABLE   0      // 선 되찾기(앞 센서가 놓치면 뒤 센서 쪽으로 꺾기) 쓰기 1 / 안 쓰기 0
 #define TURN_MIN_MS      150    // 90도 회전: 이 시간 동안은 선을 무시하고 돈다 (지금 선을 벗어나기)
 #define UTURN_MIN_MS     450    // 유턴: 이 시간 동안은 선을 무시하고 돈다
 #define SPIN_SETTLE_MS   600    // 회전: 앞 센서가 새 선을 지난 뒤 반대쪽 앞 센서가 이 시간(돌린 시간) 안에 선에 안 닿으면 그대로 멈춤
