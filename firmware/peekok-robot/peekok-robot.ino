@@ -22,13 +22,13 @@
  *           보드 "NodeMCU 1.0" 또는 "LOLIN(WEMOS) D1 mini"
  *       config.example.h 를 config.h 로 복사해 WiFi·로봇 키·핀을 채운다.
  *
- * 센서 배치와 선 따라가기
- *   가운데 센서(차체 맨 앞)는 선 위, 좌우 센서는 차체 양옆(선에서 몇 cm 바깥)에 있다.
- *   - 선 따라가기: 가운데 센서 하나로 선의 한쪽 가장자리(EDGE_SIDE)를 탄다. 검정이면 선 안쪽으로 들어온 것이니
- *     가장자리 바깥으로, 바닥이면 선 쪽으로 꺾고, 같은 색이 오래 이어질수록 세게 꺾는다(곡선 대응).
- *     센서가 하나라도 어느 쪽으로 꺾어야 하는지 항상 알 수 있는 방식이다.
- *   - 교차로·분기: 평소엔 선을 안 보는 좌우 센서가 선을 보면 교차로. 회전은 제자리에서 돌다 가운데 센서가 새 선을 잡으면 멈춘다.
- *   - 초음파(HC-SR04)가 있으면 달리는 중 앞에 장애물이 가까우면 멈췄다가 치워지면 다시 간다.
+ * 센서 배치와 선 따라가기 (라인 센서 4개)
+ *   앞 왼쪽·앞 오른쪽 센서(차체 맨 앞)는 검정 선을 사이에 두고 양옆, 왼쪽·오른쪽 센서는 차체 양옆(선에서 몇 cm 바깥).
+ *   - 선 따라가기: 앞 두 센서가 모두 바닥이면 곧장, 한쪽이 검정이면 그쪽으로 꺾는다(오래 이어질수록 세게 — 곡선 대응).
+ *     둘 다 검정이면 앞에 가로선(교차로)이 있는 것이니 꺾지 않고 곧장.
+ *   - 교차로·분기·선 끝 표시: 평소엔 선을 안 보는 양옆 센서가 선을 보면 교차로. 회전은 제자리에서 돌다
+ *     앞 센서가 새 선을 잡으면 멈춘다. 선 끝은 앞 센서로는 알 수 없어서, 유턴·정지할 곳에는 가로선을 붙여 둔다.
+ *   - 초음파(HC-SR04)를 달면(PIN_SONAR_TRIG) 달리는 중 앞에 장애물이 가까우면 멈췄다가 치워지면 다시 간다.
  * 시리얼(115200): s 센서 · u 초음파 · m 바퀴 하나씩 · f 앞으로 · l/r 제자리 회전 · c 속도 재기(5초 선 따라가기)
  *                 k 코스 시험(서버 없이 TEST_ROUTE) · v 주행 기록 켜기/끄기 · p 계획 보기 · x 멈춤
  */
@@ -63,17 +63,17 @@
 #ifndef MIN_PWM
 #define MIN_PWM 0
 #endif
-#ifndef EDGE_SIDE
-#define EDGE_SIDE 'L'
+#ifndef PIN_FRONT_LEFT
+#error "config.h 가 예전 센서 배치(가운데 센서) 기준이에요. 새 config.example.h 를 복사해 WiFi·로봇 키만 옮겨 넣으세요."
 #endif
-#ifndef EDGE_STEER_MIN
-#define EDGE_STEER_MIN (PWM_MAX * 40 / 255)
+#ifndef STEER_MIN
+#define STEER_MIN (PWM_MAX * 45 / 255)
 #endif
-#ifndef EDGE_STEER_MAX
-#define EDGE_STEER_MAX (PWM_MAX * 240 / 255)
+#ifndef STEER_MAX
+#define STEER_MAX (PWM_MAX * 230 / 255)
 #endif
-#ifndef EDGE_RAMP_MS
-#define EDGE_RAMP_MS 350
+#ifndef STEER_RAMP_MS
+#define STEER_RAMP_MS 300
 #endif
 #ifndef JUNCTION_COOLDOWN_MS
 #define JUNCTION_COOLDOWN_MS 450
@@ -81,8 +81,8 @@
 #ifndef TURN_MIN_MS
 #define TURN_MIN_MS 150
 #endif
-#ifndef LINE_END_MS
-#define LINE_END_MS 450
+#ifndef TEST_GIVEUP_MS
+#define TEST_GIVEUP_MS 30000
 #endif
 #ifndef OBSTACLE_STOP_CM
 #define OBSTACLE_STOP_CM 20
@@ -117,9 +117,10 @@ unsigned long legStart = 0;   // 구간 시작 시각
 unsigned long legExpected = 0;// 구간 예상 시간(ms)
 unsigned long junctionSince = 0;
 unsigned long junctionIgnoreUntil = 0;  // 회전·통과 직후 좌우 센서 무시
-unsigned long lineSeenAt = 0; // 가운데 센서가 마지막으로 검정을 본 시각
-bool edgeOnLine = false;      // 가운데 센서가 지금 보는 색 (true 검정)
-unsigned long edgeSince = 0;  // 그 색을 보기 시작한 시각
+unsigned long lineSeenAt = 0; // 앞 센서가 마지막으로 검정을 본 시각
+int followSide = 0;           // 앞 센서: 0 둘 다 바닥 · -1 왼쪽만 검정 · 1 오른쪽만 검정 · 2 둘 다 검정
+unsigned long followSince = 0;// 그 상태가 시작된 시각
+unsigned long testLastEvent = 0;
 unsigned long lastPoll = 0;
 bool verbose = false;         // 'v': 주행 중 센서·바퀴 기록
 unsigned long lastLog = 0;
@@ -145,9 +146,11 @@ HTTPClient http;
 // ───────── 하드웨어 ─────────
 bool readLine(int pin) { return (digitalRead(pin) == HIGH) == (LINE_IS_HIGH == 1); }
 bool readAnalogLine(int pin, int thresh) { return (analogRead(pin) > thresh) == (LINE_IS_HIGH == 1); }
-bool sLeft() { return SENSOR_LEFT_ANALOG ? readAnalogLine(PIN_SENSOR_LEFT, LEFT_ANALOG_THRESHOLD) : readLine(PIN_SENSOR_LEFT); }
-bool sMid() { return SENSOR_MID_ANALOG ? readAnalogLine(PIN_SENSOR_MID, MID_ANALOG_THRESHOLD) : readLine(PIN_SENSOR_MID); }
-bool sRight() { return SENSOR_RIGHT_ANALOG ? readAnalogLine(PIN_SENSOR_RIGHT, RIGHT_ANALOG_THRESHOLD) : readLine(PIN_SENSOR_RIGHT); }
+// 핀 번호가 -1 이면 그 센서는 없음(항상 바닥)
+bool sLeft() { return PIN_SENSOR_LEFT < 0 ? false : SENSOR_LEFT_ANALOG ? readAnalogLine(PIN_SENSOR_LEFT, LEFT_ANALOG_THRESHOLD) : readLine(PIN_SENSOR_LEFT); }    // 차체 왼쪽(교차로)
+bool sRight() { return PIN_SENSOR_RIGHT < 0 ? false : SENSOR_RIGHT_ANALOG ? readAnalogLine(PIN_SENSOR_RIGHT, RIGHT_ANALOG_THRESHOLD) : readLine(PIN_SENSOR_RIGHT); } // 차체 오른쪽(교차로)
+bool sFrontL() { return readLine(PIN_FRONT_LEFT); }    // 앞 왼쪽(선 따라가기)
+bool sFrontR() { return readLine(PIN_FRONT_RIGHT); }   // 앞 오른쪽(선 따라가기)
 
 // 모터 한 쪽: v 는 -PWM_MAX(뒤로) ~ PWM_MAX(앞으로)
 // pinEn >= 0 : L298N ENA/ENB 를 PWM 핀에 연결(점퍼 뺌) → IN 두 핀은 방향만, 세기는 EN 핀으로
@@ -211,7 +214,7 @@ bool obstacleHold() {
     if (blocked && !was) { blockedSince = now; Serial.printf("[장애물] 앞 %dcm — 멈춤\n", lastCm); }
     if (!blocked && was) {
       unsigned long d = now - blockedSince;
-      legStart += d; lineSeenAt += d; edgeSince = now; junctionSince = 0;
+      legStart += d; lineSeenAt += d; followSince = now; testLastEvent += d; junctionSince = 0;
       Serial.printf("[장애물] 치워짐 — %lu.%lu초 만에 다시 출발\n", d / 1000, (d % 1000) / 100);
     }
   }
@@ -220,21 +223,22 @@ bool obstacleHold() {
 }
 
 // ───────── 선 따라가기 · 교차로 감지 ─────────
-// 가운데 센서로 선의 한쪽 가장자리(EDGE_SIDE)를 탄다. 한 번 부를 때마다 바퀴 세기를 정함.
-void edgeFollow(int base) {
+// 앞 두 센서 사이에 선을 두고 달린다. 한 번 부를 때마다 바퀴 세기를 정함.
+void lineFollow(int base) {
   unsigned long now = millis();
-  bool c = sMid();
-  if (c != edgeOnLine) { edgeOnLine = c; edgeSince = now; }
-  if (c) lineSeenAt = now;
-  unsigned long t = now - edgeSince;
-  if (t > EDGE_RAMP_MS) t = EDGE_RAMP_MS;
-  int steer = EDGE_STEER_MIN + (int)((long)(EDGE_STEER_MAX - EDGE_STEER_MIN) * (long)t / EDGE_RAMP_MS);
-  // 'L'(왼쪽 가장자리): 검정 = 선 안쪽으로 들어옴 → 왼쪽으로, 바닥 = 선 왼쪽 바깥 → 오른쪽으로. 'R' 은 반대.
-  int dir = (c ? -1 : 1) * (EDGE_SIDE == 'R' ? -1 : 1);   // -1 왼쪽으로 꺾기 · +1 오른쪽으로 꺾기
-  drive(base + dir * steer, base - dir * steer);
+  bool fl = sFrontL(), fr = sFrontR();
+  int side = (fl && fr) ? 2 : fl ? -1 : fr ? 1 : 0;
+  if (side != followSide) { followSide = side; followSince = now; }
+  if (fl || fr) lineSeenAt = now;
+  if (side == 0 || side == 2) { drive(base, base); return; }   // 선이 사이에 있음 · 앞에 가로선 → 곧장
+  // 한쪽이 검정 = 선이 그쪽으로 치우침 → 그쪽으로 꺾기. 오래 이어질수록 세게(STEER_RAMP_MS 에 STEER_MAX = 제자리 회전에 가깝게)
+  unsigned long t = now - followSince;
+  if (t > STEER_RAMP_MS) t = STEER_RAMP_MS;
+  int steer = STEER_MIN + (int)((long)(STEER_MAX - STEER_MIN) * (long)t / STEER_RAMP_MS);
+  drive(base + side * steer, base - side * steer);   // side -1: 왼쪽 바퀴를 느리게 = 왼쪽으로
 }
 // 새로 선을 잡은 뒤(회전·출발) 따라가기 상태를 처음부터
-void edgeReset() { edgeOnLine = sMid(); edgeSince = millis(); lineSeenAt = millis(); }
+void followReset() { followSide = -9; followSince = millis(); lineSeenAt = millis(); }
 // 좌우 센서가 JUNCTION_MS 이상 선을 보면 교차로 (allowed 가 false 거나 회전 직후면 무시)
 bool junctionSeen(bool allowed) {
   unsigned long now = millis();
@@ -245,7 +249,7 @@ bool junctionSeen(bool allowed) {
 void logDrive(const char* tag) {
   if (!verbose || millis() - lastLog < 100) return;
   lastLog = millis();
-  Serial.printf("[%s] 센서 L%d C%d R%d · 바퀴 %d %d · 앞 %dcm\n", tag, (int)sLeft(), (int)sMid(), (int)sRight(), lastLeftPwm, lastRightPwm, lastCm);
+  Serial.printf("[%s] 센서 옆L%d 앞L%d 앞R%d 옆R%d · 바퀴 %d %d · 앞 %dcm\n", tag, (int)sLeft(), (int)sFrontL(), (int)sFrontR(), (int)sRight(), lastLeftPwm, lastRightPwm, lastCm);
 }
 
 // ───────── 방향 계산 ─────────
@@ -356,14 +360,14 @@ bool reportPassed(int i) {
 
 // ───────── 회전 (막는 동작: 끝날 때까지 기다림) ─────────
 // dir: -1 왼쪽, +1 오른쪽. minMs 가 지나기 전에는 선을 무시(유턴용).
-// 제자리에서 돌다가 가운데 센서(차체 맨 앞)가 새 선을 잡으면 멈춘다.
+// 제자리에서 돌다가 도는 쪽 앞 센서(오른쪽으로 돌면 앞 오른쪽)가 새 선을 잡으면 멈춘다.
 // 처음 minMs 동안은 선을 무시(지금 서 있는 선을 벗어나기), 그 뒤에는 바닥 → 검정으로 바뀌는 순간에 멈춤.
 bool spinToLine(int dir, unsigned long minMs) {
   drive(dir * -TURN_PWM, dir * TURN_PWM);
   unsigned long t0 = millis();
   bool sawFloor = false;
   while (millis() - t0 < TURN_TIMEOUT_MS) {
-    bool c = sMid();
+    bool c = dir > 0 ? sFrontR() : sFrontL();
     if (millis() - t0 >= minMs) {
       if (!c) sawFloor = true;
       else if (sawFloor) { stopMotors(); delay(80); return true; }
@@ -389,7 +393,7 @@ bool doTurn(char t, char want, bool atJunction) {
   if (ok && want != '-') heading = want;
   junctionIgnoreUntil = millis() + JUNCTION_COOLDOWN_MS;   // 방금 지난 교차로 선을 다시 세지 않게
   junctionSince = 0;
-  edgeReset();
+  followReset();
   Serial.printf("[회전] %c → 방향 %c %s\n", t, want, ok ? "" : "(선을 못 찾음)");
   return ok;
 }
@@ -455,20 +459,24 @@ void followStep() {
   bool gateOpen = !finalLeg && now - legStart > (unsigned long)(legExpected * JUNCTION_GATE);
   if (junctionSeen(gateOpen)) { atNode(legFrom + 1); return; }
 
-  edgeFollow(SPEED_PWM);
+  lineFollow(SPEED_PWM);
   logDrive("주행");
-  if (now - lineSeenAt > LOST_LINE_MS) { stopMotors(); state = ST_ERROR; Serial.println("[오류] 선을 잃었어요"); }
+  // 다음 교차로가 예상 시간의 2배 + LOST_LINE_MS 가 지나도 안 나오면 선을 벗어난 것으로 보고 멈춤
+  if (!finalLeg && now - legStart > legExpected * 2 + LOST_LINE_MS) {
+    stopMotors(); state = ST_ERROR; Serial.println("[오류] 다음 교차로가 너무 안 나와요 (선을 벗어났을 수 있음)");
+  }
 }
 
 // ───────── 코스 시험 (서버 없이, 시리얼 'k') ─────────
-// 교차로(좌우 센서) 또는 선 끝(가운데 센서가 LINE_END_MS 동안 바닥)을 만날 때마다 TEST_ROUTE 의 다음 글자를 한다.
+// 표시(양옆 센서가 보는 교차로·분기·선 끝 가로선)를 만날 때마다 TEST_ROUTE 의 다음 글자를 한다.
 const char* testRoute = TEST_ROUTE;
 void testStart() {
   routeIdx = 0;
   blocked = false; nearCount = farCount = 0;
   junctionIgnoreUntil = millis() + JUNCTION_COOLDOWN_MS;
   junctionSince = 0;
-  edgeReset();
+  testLastEvent = millis();
+  followReset();
   state = ST_TEST;
   Serial.printf("[코스 시험] \"%s\" 시작 — x 로 멈춤\n", testRoute);
 }
@@ -478,25 +486,24 @@ void testFinish(const char* why) {
   doneRev = planRev;   // 시험 중에 온 계획을 끝난 뒤 갑자기 달리지 않게
   Serial.printf("[코스 시험] 끝: %s\n", why);
 }
-// 지금 만난 것(kind: 'J' 교차로 · 'E' 선 끝)에 대해 다음 글자를 한다
-void testEvent(char kind) {
+// 표시를 만났을 때 다음 글자를 한다
+void testEvent() {
   char a = testRoute[routeIdx];
   stopMotors();
+  testLastEvent = millis();
   if (!a) { testFinish("코스 글자를 다 썼어요"); return; }
   routeIdx++;
-  Serial.printf("[코스 시험] %d번째: %s 만남 → %c\n", routeIdx, kind == 'J' ? "교차로" : "선 끝", a);
-  if (a == 'E') { testFinish(kind == 'E' ? "선 끝에서 정지 (완료)" : "교차로에서 정지"); return; }
-  if (kind == 'E' && a != 'U') { testFinish("선 끝에서는 U(유턴)나 E(정지)만 할 수 있어요"); return; }
-  if (!doTurn(a, '-', kind == 'J')) { testFinish("회전하다 선을 못 찾았어요"); return; }
+  Serial.printf("[코스 시험] %d번째 표시 → %c\n", routeIdx, a);
+  if (a == 'E') { testFinish("정지 (완료)"); return; }
+  if (!doTurn(a, '-', true)) { testFinish("회전하다 선을 못 찾았어요"); return; }
   if (!testRoute[routeIdx]) testFinish("코스 글자를 다 썼어요");
 }
 void testStep() {
   if (obstacleHold()) return;
-  unsigned long now = millis();
-  if (junctionSeen(true)) { testEvent('J'); return; }
-  edgeFollow(SPEED_PWM);
+  if (junctionSeen(true)) { testEvent(); return; }
+  lineFollow(SPEED_PWM);
   logDrive("시험");
-  if (now - lineSeenAt > LINE_END_MS) testEvent('E');
+  if (millis() - testLastEvent > TEST_GIVEUP_MS) testFinish("표시를 너무 오래 못 만났어요");
 }
 
 void elevatorStep() {
@@ -529,12 +536,11 @@ void serialCommands() {
   if (!Serial.available()) return;
   char ch = Serial.read();
   if (ch == 's') {
-    Serial.println("센서 5초 — 1 = 검정 선을 봄. 가운데를 선 위/바닥에 번갈아 대 보세요 (선 위에서 0 이면 LINE_IS_HIGH 를 바꾸기)");
+    Serial.println("센서 5초 — 1 = 검정 선을 봄. 선 가운데에 똑바로 두면 앞L 0 · 앞R 0 · 옆 0 이 맞음 (선 위 센서가 0 이면 LINE_IS_HIGH 를 바꾸기)");
     for (int i = 0; i < 50; i++) {
-      Serial.printf("왼쪽 %d  가운데 %d  오른쪽 %d", (int)sLeft(), (int)sMid(), (int)sRight());
-      if (SENSOR_LEFT_ANALOG || SENSOR_MID_ANALOG || SENSOR_RIGHT_ANALOG)
-        Serial.printf("   (아날로그 원값 %d %d %d)", SENSOR_LEFT_ANALOG ? analogRead(PIN_SENSOR_LEFT) : -1,
-                      SENSOR_MID_ANALOG ? analogRead(PIN_SENSOR_MID) : -1, SENSOR_RIGHT_ANALOG ? analogRead(PIN_SENSOR_RIGHT) : -1);
+      Serial.printf("옆왼쪽 %d  앞왼쪽 %d  앞오른쪽 %d  옆오른쪽 %d", (int)sLeft(), (int)sFrontL(), (int)sFrontR(), (int)sRight());
+      if (SENSOR_LEFT_ANALOG || SENSOR_RIGHT_ANALOG)
+        Serial.printf("   (옆 아날로그 원값 %d %d)", SENSOR_LEFT_ANALOG ? analogRead(PIN_SENSOR_LEFT) : -1, SENSOR_RIGHT_ANALOG ? analogRead(PIN_SENSOR_RIGHT) : -1);
       Serial.println();
       delay(100);
     }
@@ -556,9 +562,9 @@ void serialCommands() {
   else if (ch == 'r') { Serial.println("[바퀴] 0.5초 오른쪽 제자리 회전"); drive(TURN_PWM, -TURN_PWM); delay(500); stopMotors(); }
   else if (ch == 'c') {
     Serial.println("5초 동안 선을 따라갑니다(교차로 무시). 간 거리(m) ÷ 5 = ROBOT_SPEED_MPS");
-    edgeReset();
+    followReset();
     unsigned long t0 = millis();
-    while (millis() - t0 < 5000) { edgeFollow(SPEED_PWM); logDrive("속도"); yield(); }
+    while (millis() - t0 < 5000) { lineFollow(SPEED_PWM); logDrive("속도"); yield(); }
     stopMotors();
   } else if (ch == 'k') {
     if (state == ST_FOLLOW || state == ST_ELEVATOR) { Serial.println("서버 주행 중이라 시험할 수 없어요 (x 로 멈춘 뒤)"); return; }
@@ -679,8 +685,9 @@ void setup() {
   pinMode(PIN_RIGHT_A, OUTPUT); pinMode(PIN_RIGHT_B, OUTPUT);
   if (PIN_LEFT_EN >= 0) pinMode(PIN_LEFT_EN, OUTPUT);
   if (PIN_RIGHT_EN >= 0) pinMode(PIN_RIGHT_EN, OUTPUT);
-  pinMode(PIN_SENSOR_LEFT, INPUT); pinMode(PIN_SENSOR_MID, INPUT);
-  if (!SENSOR_RIGHT_ANALOG) pinMode(PIN_SENSOR_RIGHT, INPUT);
+  pinMode(PIN_FRONT_LEFT, INPUT); pinMode(PIN_FRONT_RIGHT, INPUT);
+  if (PIN_SENSOR_LEFT >= 0 && !SENSOR_LEFT_ANALOG) pinMode(PIN_SENSOR_LEFT, INPUT);
+  if (PIN_SENSOR_RIGHT >= 0 && !SENSOR_RIGHT_ANALOG) pinMode(PIN_SENSOR_RIGHT, INPUT);
   if (PIN_SONAR_TRIG >= 0) { pinMode(PIN_SONAR_TRIG, OUTPUT); digitalWrite(PIN_SONAR_TRIG, LOW); pinMode(PIN_SONAR_ECHO, INPUT); }
   pinMode(PIN_BUTTON, INPUT_PULLUP);
   pinMode(PIN_LED, OUTPUT);

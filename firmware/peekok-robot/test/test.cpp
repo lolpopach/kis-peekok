@@ -121,39 +121,41 @@ int main(int argc, char** argv) {
   motor(8, 9, -1, -700, false);
   CHECK(fake_pwm[8] == 0 && fake_pwm[9] == 700, "뒤로: IN1 0 · IN2 PWM");
 
-  printf("== 선 따라가기: 가운데 센서로 왼쪽 가장자리(EDGE_SIDE %c) ==\n", EDGE_SIDE);
-  fake_pins[PIN_SENSOR_LEFT] = LOW; fake_analog = 0;   // 좌우 센서는 바닥
-  fake_pins[PIN_SENSOR_MID] = HIGH;                    // 가운데 검정(선 안쪽)
-  edgeReset();
-  edgeFollow(SPEED_PWM);
-  CHECK(lastLeftPwm < lastRightPwm, "검정 → 왼쪽으로 꺾기 (왼쪽 바퀴가 느림)");
-  int gentle = lastRightPwm - lastLeftPwm;
-  fake_millis += EDGE_RAMP_MS;
-  edgeFollow(SPEED_PWM);
-  CHECK(lastRightPwm - lastLeftPwm > gentle, "검정이 오래 이어지면 더 세게 꺾기");
-  fake_pins[PIN_SENSOR_MID] = LOW;                     // 바닥(선 왼쪽 바깥)
-  edgeFollow(SPEED_PWM);
-  CHECK(lastLeftPwm > lastRightPwm && lastLeftPwm - lastRightPwm == 2 * EDGE_STEER_MIN, "바닥으로 바뀌면 → 오른쪽으로 살살 (세기 처음부터)");
-  fake_millis += EDGE_RAMP_MS * 3;
-  edgeFollow(SPEED_PWM);
-  CHECK(lastRightPwm < 0, "바닥이 오래 이어지면 제자리 회전에 가깝게 (안쪽 바퀴 뒤로)");
+  printf("== 선 따라가기: 앞 두 센서 사이에 선 ==\n");
+  fake_analog = 0;                                     // 옆 센서(ESP8266 은 오른쪽만, A0) 바닥
+  fake_pins[PIN_FRONT_LEFT] = LOW; fake_pins[PIN_FRONT_RIGHT] = LOW;
+  followReset();
+  lineFollow(SPEED_PWM);
+  CHECK(lastLeftPwm == SPEED_PWM && lastRightPwm == SPEED_PWM, "둘 다 바닥(선이 사이) → 곧장");
+  fake_pins[PIN_FRONT_LEFT] = HIGH;
+  lineFollow(SPEED_PWM);
+  CHECK(lastLeftPwm < lastRightPwm && lastRightPwm - lastLeftPwm == 2 * STEER_MIN, "앞 왼쪽 검정 → 왼쪽으로 살살");
+  fake_millis += STEER_RAMP_MS;
+  lineFollow(SPEED_PWM);
+  CHECK(lastRightPwm - lastLeftPwm == 2 * STEER_MAX, "오래 이어지면 STEER_MAX 까지 세게");
+  fake_pins[PIN_FRONT_LEFT] = LOW; fake_pins[PIN_FRONT_RIGHT] = HIGH;
+  lineFollow(SPEED_PWM);
+  CHECK(lastLeftPwm > lastRightPwm && lastLeftPwm - lastRightPwm == 2 * STEER_MIN, "앞 오른쪽 검정 → 오른쪽으로 (세기 처음부터)");
+  fake_pins[PIN_FRONT_LEFT] = HIGH;
+  lineFollow(SPEED_PWM);
+  CHECK(lastLeftPwm == lastRightPwm, "둘 다 검정(앞에 가로선) → 꺾지 않고 곧장");
+  fake_pins[PIN_FRONT_LEFT] = LOW; fake_pins[PIN_FRONT_RIGHT] = LOW;
 
-  printf("== 교차로: 좌우 센서 ==\n");
+  printf("== 교차로: 옆 센서 ==\n");
   junctionIgnoreUntil = 0; junctionSince = 0;
-  CHECK(!junctionSeen(true), "좌우 센서가 바닥이면 교차로 아님");
-  fake_pins[PIN_SENSOR_LEFT] = HIGH;
-  CHECK(!junctionSeen(true), "왼쪽 센서가 막 켜짐 → 아직 (잡음 거르기)");
+  CHECK(!junctionSeen(true), "옆 센서가 바닥이면 교차로 아님");
+  fake_pins[PIN_FRONT_LEFT] = HIGH; fake_pins[PIN_FRONT_RIGHT] = HIGH; fake_millis += 100;
+  CHECK(!junctionSeen(true), "앞 센서만 검정이면 아직 교차로 아님 (옆 센서가 볼 때)");
+  fake_pins[PIN_FRONT_LEFT] = LOW; fake_pins[PIN_FRONT_RIGHT] = LOW;
+  CHECK(!sLeft(), "ESP8266: 왼쪽 옆 센서 없음(-1) → 항상 바닥");
+  fake_analog = 1000;                                  // 오른쪽 옆 센서 검정
+  CHECK(!junctionSeen(true), "옆 센서가 막 켜짐 → 아직 (잡음 거르기)");
   fake_millis += JUNCTION_MS;
   CHECK(junctionSeen(true), "JUNCTION_MS 이어지면 교차로");
   CHECK(!junctionSeen(false), "서버 주행에서 예상 시간 전(문 닫힘)이면 무시");
   junctionIgnoreUntil = fake_millis + 100; junctionSince = 0;
   fake_millis += JUNCTION_MS + 10;
   CHECK(!junctionSeen(true), "회전 직후(JUNCTION_COOLDOWN_MS)는 무시");
-  fake_pins[PIN_SENSOR_LEFT] = LOW;
-  fake_analog = 1000;                                  // 오른쪽(ESP8266 은 A0 아날로그) 검정
-  fake_millis += 200; junctionSince = 0;
-  junctionSeen(true); fake_millis += JUNCTION_MS;
-  CHECK(junctionSeen(true), "오른쪽 센서만 켜져도 교차로 (오른쪽 분기)");
   fake_analog = 0;
 
   printf("== 장애물: 초음파 ==\n");
@@ -167,23 +169,22 @@ int main(int argc, char** argv) {
   CHECK(sonarCm() == (PIN_SONAR_TRIG < 0 ? -1 : 10), "메아리 580us = 10cm (초음파 없는 보드는 -1)");
   fake_pulse_us = 0;
 
-  printf("== 코스 시험 RURLE (서버 없이) ==\n");
-  testRoute = "RURLE";
-  fake_pins[PIN_SENSOR_MID] = HIGH;
+  printf("== 코스 시험 (서버 없이) ==\n");
+  testRoute = "RE";
   testStart();
   CHECK(state == ST_TEST && routeIdx == 0, "시작");
-  fake_pins[PIN_SENSOR_MID] = LOW;
-  fake_millis += LINE_END_MS + 5;
-  testEvent('E');
-  CHECK(state == ST_IDLE && routeIdx == 1, "첫 글자 R 인데 선 끝을 만나면 → 멈추고 알려 줌");
-  testStart();
   fake_millis += 1000;
-  testEvent('J');   // R: 회전 중 가운데 센서가 계속 바닥 → 선을 못 찾음
-  CHECK(state == ST_IDLE, "회전하다 선을 못 찾으면 멈춤");
+  testEvent();   // R: 회전 중 앞 오른쪽 센서가 계속 바닥 → 선을 못 찾음
+  CHECK(state == ST_IDLE && routeIdx == 1, "회전하다 선을 못 찾으면 멈춤");
   testRoute = "E";
   testStart();
-  testEvent('E');
-  CHECK(state == ST_IDLE && routeIdx == 1, "E: 선 끝에서 정지 (완료)");
+  testEvent();
+  CHECK(state == ST_IDLE && routeIdx == 1, "E: 정지 (완료)");
+  testRoute = "S";
+  testStart();
+  fake_millis += TEST_GIVEUP_MS + 1;
+  testStep();
+  CHECK(state == ST_IDLE, "표시를 너무 오래 못 만나면 멈춤 (선 벗어나 계속 달리지 않게)");
   testRoute = TEST_ROUTE;
 
   printf("== WiFi 이름 비교 (iPhone ’ 따옴표·대소문자·띄어쓰기) ==\n");

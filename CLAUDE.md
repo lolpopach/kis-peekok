@@ -20,9 +20,10 @@
   한 파일(`peekok-robot.ino`)이 `#if defined(ESP32)` 로 라이브러리·핀·아날로그 읽기만 나누고 주행 로직은 공유한다.
   ESP32·ESP8266 모두 글자 형식 API(`GET /api/robot/drive`, POST `?fmt=text`, `lib/shared.js` 의 `driveText`)를 쓴다 — 형식을 바꾸면 펌웨어도 같이 바꾼다.
   교차로에서는 서버가 준 action(경로 모양 기준)을 따르고, 방향(N/E/S/W)은 출발할 때 몸 돌리기에만 쓴다(대각선 구간 때문).
-  센서 배치(사용자 결정): 가운데 센서는 차체 맨 앞 선 위, 좌우 센서는 차체 양옆(선에서 6~7cm) → 선 따라가기는 가운데 센서 하나로
-  선의 한쪽 가장자리 타기(EDGE_SIDE), 교차로는 좌우 센서가 선을 볼 때. 오른쪽 바퀴는 반대 배선(RIGHT_INVERT 1). 초음파 HC-SR04(TRIG 14·ECHO 13)로 장애물 멈춤.
-  시리얼 `k` = 서버 없이 TEST_ROUTE 코스 시험, `v` = 주행 기록(센서·바퀴). WiFi 가 붙어야 loop 가 돌아 시리얼 명령을 받는다.
+  센서 배치(사용자 결정): 라인 센서 4개 — 앞 왼쪽 IO14·앞 오른쪽 IO33(차체 맨 앞, 선을 사이에 둠 → 선 따라가기),
+  차체 왼쪽 IO32·오른쪽 IO27(선에서 6~7cm 바깥 → 교차로 감지). 선 끝은 센서로 못 알아서 끝에 가로선을 붙인다.
+  오른쪽 바퀴는 반대 배선(RIGHT_INVERT 1). 초음파는 지금 안 씀(IO14 를 센서가 씀, 다시 달면 PIN_SONAR_TRIG).
+  시리얼 `k` = 서버 없이 TEST_ROUTE 코스 시험, `v` = 주행 기록(센서 4개·바퀴). WiFi 가 붙어야 loop 가 돌아 시리얼 명령을 받는다.
   펌웨어 점검: `bash firmware/peekok-robot/test/run.sh` (호스트 g++ + Arduino 흉내 헤더로 컴파일하고 서버 driveText 응답으로 논리 시험,
   항상 ESP8266 코드 경로지만 공유 로직이라 ESP32 쪽도 같이 검증됨). 실제 보드 컴파일·업로드는 보드가 꽂힌 사용자 Mac 의 Claude CLI 세션에서 `arduino-cli`
   (`arduino-cli compile --fqbn esp32:esp32:esp32 -u -p <포트> firmware/peekok-robot`, ESP8266 은 `esp8266:esp8266:nodemcuv2`)로 한다.
