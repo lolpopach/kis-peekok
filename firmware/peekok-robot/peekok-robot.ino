@@ -354,7 +354,9 @@ unsigned long lastSonar = 0;
 int lastCm = -1;
 // 코스 시험
 int routeIdx = 0;
-char routeBuf[32] = TEST_ROUTE;   // 코스 시험 순서 — 시리얼 K<글자들> 로 바꾸고 보드에 기억
+char routeBuf[32] = TEST_ROUTE;
+bool autoAfterU = false;      // 자동 모드: 방금 유턴했으면 다음 T자는 본선
+char autoLastTurn = 'R';      // 자동 모드: 마지막으로 들어간 분기 쪽   // 코스 시험 순서 — 시리얼 K<글자들> 로 바꾸고 보드에 기억
 
 // ───────── 네트워크 ─────────
 #if defined(ESP32)
@@ -990,6 +992,7 @@ bool backToLine() {
 }
 void testStart() {
   routeIdx = 0;
+  autoAfterU = false;
   blocked = false; nearCount = farCount = 0;
   junctionIgnoreMove = moveMs;          // 출발 때는 시간으로 막지 않음 (출발점 가까운 분기도 셈)
   junctionArmed = false; sideClearSince = 0;   // 옆 센서가 바닥을 0.1초 보면 바로 셈
@@ -1013,6 +1016,13 @@ void testEvent() {
   testLastEvent = millis();
   if (!a) { testFinish("코스 글자를 다 썼어요"); return; }
   routeIdx++;
+  if (a == 'A') {   // 자동: 길을 외우지 않고 보이는 대로 — 한쪽 분기 → 그쪽으로 · T자 → 유턴 · 유턴 다음 T자 = 본선 → 들어갔던 쪽으로
+    routeIdx = 0;                 // 'A' 를 계속 되풀이
+    bool both = junctionL && junctionR;
+    if (both && !autoAfterU) { a = 'U'; autoAfterU = true; Serial.println("[자동] 양쪽에 선(T자) → 끝으로 보고 유턴"); }
+    else if (both) { a = autoLastTurn; autoAfterU = false; Serial.printf("[자동] 유턴 뒤 T자 = 직진 도로 → %s (들어갔던 쪽)\n", a == 'L' ? "좌회전" : "우회전"); }
+    else { a = junctionL ? 'L' : 'R'; autoLastTurn = a; autoAfterU = false; Serial.printf("[자동] %s 분기 → %s\n", a == 'L' ? "왼쪽" : "오른쪽", a == 'L' ? "좌회전" : "우회전"); }
+  }
   if (a == '!') {   // 멈춤 시험: 분기를 알아보면 돌지 않고 바로 멈추고 어느 쪽인지 알림
     Serial.printf("[멈춤 시험] 분기 발견 → 멈춤: %s에 선 (뒤왼쪽 %d · 뒤오른쪽 %d · 앞왼쪽 %d · 앞오른쪽 %d)\n",
                   junctionL && junctionR ? "양쪽" : junctionL ? "왼쪽" : "오른쪽", (int)sLeft(), (int)sRight(), (int)sFrontL(), (int)sFrontR());
@@ -1245,6 +1255,11 @@ void serialCommands() {
   } else if (ch == 't') {
     if (state == ST_FOLLOW || state == ST_ELEVATOR) { Serial.println("서버 주행 중이라 시험할 수 없어요 (x 로 멈춘 뒤)"); return; }
     traceStart();
+  } else if (ch == 'a') {
+    if (state == ST_FOLLOW || state == ST_ELEVATOR) { Serial.println("서버 주행 중이라 시험할 수 없어요 (x 로 멈춘 뒤)"); return; }
+    testRoute = "A";
+    testStart();
+    Serial.println("[자동] 선을 따라가다 한쪽 분기 → 그쪽으로 · T자 → 유턴 · 유턴 다음 T자 = 직진 도로 (x 로 멈춤)");
   } else if (ch == 'h') {
     if (state == ST_FOLLOW || state == ST_ELEVATOR) { Serial.println("서버 주행 중이라 시험할 수 없어요 (x 로 멈춘 뒤)"); return; }
     testRoute = "!";   // 분기를 알아보면 멈춤
