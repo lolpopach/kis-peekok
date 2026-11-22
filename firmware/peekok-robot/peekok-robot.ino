@@ -48,6 +48,8 @@
 #endif
 #if defined(ESP32)
 #include <Preferences.h>   // 배운 모터 보정값을 전원이 꺼져도 기억
+#include <ArduinoOTA.h>    // 무선 업로드
+#include <ESPmDNS.h>
 #elif defined(ESP8266)
 #include <EEPROM.h>
 #endif
@@ -233,6 +235,49 @@ int lastCm = -1;
 // 코스 시험
 int routeIdx = 0;
 
+// ───────── 무선 시리얼 · 무선 업로드 · 멈춤 요청 ─────────
+// 시리얼 출력은 USB 와 WiFi(TCP 2323, run 이 peekok-robot.local 로 연결) 양쪽으로, 입력은 둘 중 들어온 쪽에서.
+// 무선 업로드(ArduinoOTA): 호스트 이름 peekok-robot, 비밀번호 OTA_PASS(없으면 ROBOT_KEY).
+// 회전처럼 오래 걸리는 동작 중에도 x 를 받거나 무선 연결이 끊기면 바로 멈춘다.
+#ifndef OTA_PASS
+#define OTA_PASS ROBOT_KEY
+#endif
+volatile bool abortMotion = false;
+bool telnetWasConnected = false;
+#if defined(ESP32)
+WiFiServer telnetServer(2323);
+WiFiClient telnet;
+bool wirelessStarted = false;
+class DualOut : public Print {
+ public:
+  size_t write(uint8_t c) override { Serial.write(c); if (telnet && telnet.connected()) telnet.write(c); return 1; }
+  size_t write(const uint8_t* b, size_t n) override { Serial.write(b, n); if (telnet && telnet.connected()) telnet.write(b, n); return n; }
+};
+DualOut Out;
+// 입력·멈춤 확인: 함수 대신 구조체 안에 둠 (Arduino 자동 선언이 Node 등 정의보다 앞서지 않게)
+struct In {
+  static int available() { if (telnet && telnet.connected() && telnet.available()) return telnet.available(); return Serial.available(); }
+  static int read() { if (telnet && telnet.connected() && telnet.available()) return telnet.read(); return Serial.read(); }
+};
+struct Abort {
+  static bool poll() {
+    if (abortMotion) return true;
+    if (telnetWasConnected && !(telnet && telnet.connected())) { abortMotion = true; Serial.println("[무선] 연결 끊김 → 멈춤"); return true; }
+    while (telnet && telnet.connected() && telnet.available()) { int c = telnet.read(); if (c == 'x' || c == 'X') { abortMotion = true; break; } }
+    while (Serial.available()) { int c = Serial.read(); if (c == 'x' || c == 'X') { abortMotion = true; break; } }
+    if (abortMotion) Serial.println("[멈춤] x 받음 — 하던 동작 멈춤");
+    return abortMotion;
+  }
+};
+#else
+#define Out Serial
+struct In {
+  static int available() { return Serial.available(); }
+  static int read() { return Serial.read(); }
+};
+struct Abort { static bool poll() { return abortMotion; } };
+#endif
+
 // ───────── 네트워크 ─────────
 #if defined(ESP32)
 WiFiClientSecure tls;
@@ -330,7 +375,7 @@ void trimSave(bool force) {
   EEPROM.write(0, 0xA5); EEPROM.put(1, motorTrim); EEPROM.commit();
 #endif
   savedTrim = motorTrim;
-  Serial.printf("[모터 보정] %+.3f 저장 (왼쪽 x%.2f · 오른쪽 x%.2f)\n", motorTrim, 1 + motorTrim, 1 - motorTrim);
+  Out.printf("[모터 보정] %+.3f 저장 (왼쪽 x%.2f · 오른쪽 x%.2f)\n", motorTrim, 1 + motorTrim, 1 - motorTrim);
 }
 void speedSave() {
 #if defined(ESP32)
@@ -339,7 +384,7 @@ void speedSave() {
 #elif defined(ESP8266)
   EEPROM.write(5, 0xA6); EEPROM.put(6, speedPwm); EEPROM.commit();
 #endif
-  Serial.printf("[속도] 끊어 가기 %d%% (세기 %d) · 회전 전 전진 %dms 저장\n", speedDuty, speedPwm, turnForwardMs);
+  Out.printf("[속도] 끊어 가기 %d%% (세기 %d) · 회전 전 전진 %dms 저장\n", speedDuty, speedPwm, turnForwardMs);
 }
 void stopMotors() { drive(0, 0); }
 void led(bool on) { digitalWrite(PIN_LED, on ? LED_ON : LED_OFF); }
@@ -375,11 +420,11 @@ bool obstacleHold() {
     lastCm = sonarCm();
     bool was = blocked;
     obstacleUpdate(lastCm);
-    if (blocked && !was) { blockedSince = now; Serial.printf("[장애물] 앞 %dcm — 멈춤\n", lastCm); }
+    if (blocked && !was) { blockedSince = now; Out.printf("[장애물] 앞 %dcm — 멈춤\n", lastCm); }
     if (!blocked && was) {
       unsigned long d = now - blockedSince;
       legStart += d; lineSeenAt += d; followSince = now; testLastEvent += d; junctionSince = 0;
-      Serial.printf("[장애물] 치워짐 — %lu.%lu초 만에 다시 출발\n", d / 1000, (d % 1000) / 100);
+      Out.printf("[장애물] 치워짐 — %lu.%lu초 만에 다시 출발\n", d / 1000, (d % 1000) / 100);
     }
   }
   if (blocked) stopMotors();
@@ -418,13 +463,13 @@ void lineFollow(int base, bool sideRecover = false) {
   // 뒤 센서는 방향만 알려 줄 뿐, 선을 따라가는 건 언제나 앞 센서.
   if (sideRecover && RECOVER_ENABLE) {
     if (recoverDir) {
-      if (fl || fr) { Serial.println("[선 되찾기] 앞 센서가 선을 다시 잡음"); recoverDir = 0; }
-      else if (moveMs - recoverStartMove > RECOVER_MAX_MS) { Serial.println("[선 되찾기] 못 찾음 — 그만둠"); recoverDir = 0; }
+      if (fl || fr) { Out.println("[선 되찾기] 앞 센서가 선을 다시 잡음"); recoverDir = 0; }
+      else if (moveMs - recoverStartMove > RECOVER_MAX_MS) { Out.println("[선 되찾기] 못 찾음 — 그만둠"); recoverDir = 0; }
       else { driveP(base + recoverDir * STEER_MAX, base - recoverDir * STEER_MAX); return; }
     } else if (!fl && !fr && rearLostDir() != 0) {
       recoverDir = rearLostDir();
       recoverStartMove = moveMs;
-      Serial.printf("[선 되찾기] 앞 센서가 놓침 — 뒤 %s 센서 쪽으로\n", recoverDir < 0 ? "왼쪽" : "오른쪽");
+      Out.printf("[선 되찾기] 앞 센서가 놓침 — 뒤 %s 센서 쪽으로\n", recoverDir < 0 ? "왼쪽" : "오른쪽");
       driveP(base + recoverDir * STEER_MAX, base - recoverDir * STEER_MAX);
       return;
     }
@@ -469,7 +514,7 @@ bool steadyRead(Flicker& f, bool v, const char* name) {
   if (v != f.last) { f.last = v; f.t[f.i] = now ? now : 1; f.i = (f.i + 1) % 4; }
   unsigned long oldest = f.t[f.i];   // 4번 전에 바뀐 때
   bool noisy = oldest && now - oldest < FLICKER_MS;
-  if (noisy != f.noisy) { f.noisy = noisy; Serial.printf("[깜빡임] %s 센서 %s\n", name, noisy ? "값이 너무 자주 바뀜 → 무시" : "안정됨 → 다시 씀"); }
+  if (noisy != f.noisy) { f.noisy = noisy; Out.printf("[깜빡임] %s 센서 %s\n", name, noisy ? "값이 너무 자주 바뀜 → 무시" : "안정됨 → 다시 씀"); }
   return noisy ? false : v;
 }
 bool rearL() { return steadyRead(flkL, sLeft(), "뒤 왼쪽"); }
@@ -496,7 +541,7 @@ bool junctionSeen(bool allowed) {
 void logDrive(const char* tag) {
   if (!verbose || millis() - lastLog < 100) return;
   lastLog = millis();
-  Serial.printf("[%s] 센서 뒤L%d 앞L%d 앞R%d 뒤R%d · 바퀴 %d %d · 보정 %+.3f · 앞 %dcm\n", tag, (int)sLeft(), (int)sFrontL(), (int)sFrontR(), (int)sRight(), lastLeftPwm, lastRightPwm, motorTrim, lastCm);
+  Out.printf("[%s] 센서 뒤L%d 앞L%d 앞R%d 뒤R%d · 바퀴 %d %d · 보정 %+.3f · 앞 %dcm\n", tag, (int)sLeft(), (int)sFrontL(), (int)sFrontR(), (int)sRight(), lastLeftPwm, lastRightPwm, motorTrim, lastCm);
 }
 
 // ───────── 방향 계산 ─────────
@@ -536,7 +581,7 @@ bool request(bool post, const String& path, const String& body, String& out) {
     code = http.GET();
   }
   if (code == 200) out = http.getString();
-  else Serial.printf("[http] %s %s → %d\n", post ? "POST" : "GET", path.c_str(), code);
+  else Out.printf("[http] %s %s → %d\n", post ? "POST" : "GET", path.c_str(), code);
   http.end();
   return code == 200;
 }
@@ -582,7 +627,7 @@ bool parseDrive(const String& s) {
   }
   if (readNodes) {
     planRev = rev;
-    Serial.printf("[plan] rev %s · 노드 %d개 (예상 %d)\n", planRev.c_str(), planLen, count);
+    Out.printf("[plan] rev %s · 노드 %d개 (예상 %d)\n", planRev.c_str(), planLen, count);
   }
   return true;
 }
@@ -601,7 +646,7 @@ bool report(const char* action, const String& json) {
 bool reportPassed(int i) {
   String next = (i + 1 < planLen) ? String(plan[i + 1].key) : String("");
   String json = String("{\"passed\":\"") + plan[i].key + "\",\"next\":\"" + next + "\",\"speed\":" + String(ROBOT_SPEED_MPS, 2) + "}";
-  Serial.printf("[노드] %s 지남 → %s\n", plan[i].key, next.c_str());
+  Out.printf("[노드] %s 지남 → %s\n", plan[i].key, next.c_str());
   return report("progress", json);
 }
 
@@ -622,7 +667,7 @@ bool spinToLine(int dir, unsigned long minMs) {
   bool sawFloor = false;
   int phase = 0;                 // 0 새 선 찾기 · 1 앞 센서가 선 위 · 2 선이 두 센서 사이
   unsigned long passedAt = 0;
-  while (moveMs - m0 < TURN_TIMEOUT_MS && millis() - t0 < TURN_TIMEOUT_MS * 12UL) {
+  while (!Abort::poll() && moveMs - m0 < TURN_TIMEOUT_MS && millis() - t0 < TURN_TIMEOUT_MS * 12UL) {
     spinDrive(dir);
     bool lead = dir > 0 ? sFrontR() : sFrontL();
     bool trail = dir > 0 ? sFrontL() : sFrontR();
@@ -647,12 +692,12 @@ bool arcToLine(int dir) {
   unsigned long m0 = moveMs, t0 = millis();
   moveLastAt = 0;
   bool leadSeen = false;
-  while (moveMs - m0 < ARC_TIMEOUT_MS && millis() - t0 < ARC_TIMEOUT_MS * 12UL) {
+  while (!Abort::poll() && moveMs - m0 < ARC_TIMEOUT_MS && millis() - t0 < ARC_TIMEOUT_MS * 12UL) {
     driveP(dir > 0 ? ARC_PWM : ARC_INNER_PWM, dir > 0 ? ARC_INNER_PWM : ARC_PWM);
     bool lead = dir > 0 ? sFrontR() : sFrontL();
     bool trail = dir > 0 ? sFrontL() : sFrontR();
-    if (!leadSeen) { if (lead) { leadSeen = true; Serial.printf("[회전] 앞 %s 센서가 새 선에 닿음\n", dir > 0 ? "오른쪽" : "왼쪽"); } }
-    else if (trail) { stopMotors(); Serial.printf("[회전] 앞 %s 센서도 닿음 → 직진 구간\n", dir > 0 ? "왼쪽" : "오른쪽"); delay(80); return true; }
+    if (!leadSeen) { if (lead) { leadSeen = true; Out.printf("[회전] 앞 %s 센서가 새 선에 닿음\n", dir > 0 ? "오른쪽" : "왼쪽"); } }
+    else if (trail) { stopMotors(); Out.printf("[회전] 앞 %s 센서도 닿음 → 직진 구간\n", dir > 0 ? "왼쪽" : "오른쪽"); delay(80); return true; }
     yield();
   }
   stopMotors();
@@ -663,7 +708,7 @@ bool arcToLine(int dir) {
 void forwardFor(unsigned long ms) {
   unsigned long m0 = moveMs, t0 = millis();
   moveLastAt = 0;
-  while (moveMs - m0 < ms && millis() - t0 < ms * 12UL + 1000) { driveP(speedPwm, speedPwm); yield(); }
+  while (!Abort::poll() && moveMs - m0 < ms && millis() - t0 < ms * 12UL + 1000) { driveP(speedPwm, speedPwm); yield(); }
   stopMotors();
 }
 // 회전 동작 t('S' 직진 · 'L' 좌 · 'R' 우 · 'U' 유턴)을 하고 지금 방향을 want 로 바꾼다
@@ -672,7 +717,7 @@ bool doTurn(char t, char want, bool atJunction) {
   if (t == 'S') { if (atJunction) forwardFor(CROSS_CLEAR_MS); }
   else if (t == 'L' || t == 'R') {
     stopMotors();
-    if (atJunction) { Serial.printf("[회전] %s 분기 — %d초 멈춘 뒤 돌아요\n", t == 'L' ? "왼쪽" : "오른쪽", TURN_PAUSE_MS / 1000); delay(TURN_PAUSE_MS); }
+    if (atJunction) { Out.printf("[회전] %s 분기 — %d초 멈춘 뒤 돌아요\n", t == 'L' ? "왼쪽" : "오른쪽", TURN_PAUSE_MS / 1000); delay(TURN_PAUSE_MS); }
     if (turnForwardMs > 0) forwardFor(turnForwardMs);
     ok = arcToLine(t == 'L' ? -1 : 1);
   }
@@ -682,7 +727,7 @@ bool doTurn(char t, char want, bool atJunction) {
   junctionArmed = false; sideClearSince = 0;            // 옆 센서가 그 선을 벗어나 바닥을 본 뒤에야 다음 교차로
   junctionSince = 0;
   followReset();
-  Serial.printf("[회전] %c → 방향 %c %s\n", t, want, ok ? "" : "(선을 못 찾음)");
+  Out.printf("[회전] %c → 방향 %c %s\n", t, want, ok ? "" : "(선을 못 찾음)");
   return ok;
 }
 // 출발점(복도 중간)에서: 지금 방향과 계획 방향을 비교해 그대로 가거나 유턴
@@ -701,12 +746,12 @@ void startLeg(int from) {
   junctionSince = 0;
   float m = plan[from].nextM;
   legExpected = (unsigned long)(m / ROBOT_SPEED_MPS * 1000.0);
-  Serial.printf("[구간] %s → %s  %.2fm, 약 %lums\n", plan[from].key, plan[from + 1].key, m, legExpected);
+  Out.printf("[구간] %s → %s  %.2fm, 약 %lums\n", plan[from].key, plan[from + 1].key, m, legExpected);
 }
 
 void beginPlan() {
   if (planLen < 2) return;
-  Serial.printf("[출발] 모드 %s\n", serverMode.c_str());
+  Out.printf("[출발] 모드 %s\n", serverMode.c_str());
   state = ST_FOLLOW;
   if (!faceHeading(plan[0].heading)) { state = ST_ERROR; return; }
   reportPassed(0);
@@ -716,7 +761,7 @@ void beginPlan() {
 void arriveEnd() {
   stopMotors();
   trimSave(false);
-  Serial.println("[도착] 목적지");
+  Out.println("[도착] 목적지");
   for (int i = 0; i < 3 && !report("arrived", "{}"); i++) delay(1000);
   doneRev = planRev;
   state = ST_IDLE;
@@ -731,7 +776,7 @@ void atNode(int j) {
   if (n.action == 'E') {                      // 엘리베이터: 사람의 도움을 기다린다
     state = ST_ELEVATOR;
     legFrom = j;
-    Serial.printf("[엘리베이터] %d층으로 태워 주세요. 내린 뒤 FLASH 버튼\n", n.toFloor);
+    Out.printf("[엘리베이터] %d층으로 태워 주세요. 내린 뒤 FLASH 버튼\n", n.toFloor);
     return;
   }
   if (!turnAtNode(n)) { state = ST_ERROR; return; }
@@ -747,13 +792,13 @@ void followStep() {
   // 교차로: 평소엔 선을 안 보는 좌우 센서가 선을 봄 (다음 노드까지 예상 시간의 JUNCTION_GATE 가 지난 뒤부터)
   bool gateOpen = !finalLeg && now - legStart > (unsigned long)(legExpected * JUNCTION_GATE);
   if (junctionSeen(gateOpen)) { atNode(legFrom + 1); return; }
-  if (liftedNow()) { stopMotors(); state = ST_ERROR; Serial.println("[오류] 센서가 모두 검정 — 로봇이 들렸어요?"); return; }
+  if (liftedNow()) { stopMotors(); state = ST_ERROR; Out.println("[오류] 센서가 모두 검정 — 로봇이 들렸어요?"); return; }
 
   lineFollow(speedPwm);
   logDrive("주행");
   // 다음 교차로가 예상 시간의 2배 + LOST_LINE_MS 가 지나도 안 나오면 선을 벗어난 것으로 보고 멈춤
   if (!finalLeg && now - legStart > legExpected * 2 + LOST_LINE_MS) {
-    stopMotors(); state = ST_ERROR; Serial.println("[오류] 다음 교차로가 너무 안 나와요 (선을 벗어났을 수 있음)");
+    stopMotors(); state = ST_ERROR; Out.println("[오류] 다음 교차로가 너무 안 나와요 (선을 벗어났을 수 있음)");
   }
 }
 
@@ -769,14 +814,14 @@ void testStart() {
   testLastEvent = millis();
   followReset();
   state = ST_TEST;
-  Serial.printf("[코스 시험] \"%s\" 시작 — x 로 멈춤\n", testRoute);
+  Out.printf("[코스 시험] \"%s\" 시작 — x 로 멈춤\n", testRoute);
 }
 void testFinish(const char* why) {
   stopMotors();
   trimSave(false);
   state = ST_IDLE;
   doneRev = planRev;   // 시험 중에 온 계획을 끝난 뒤 갑자기 달리지 않게
-  Serial.printf("[코스 시험] 끝: %s\n", why);
+  Out.printf("[코스 시험] 끝: %s\n", why);
 }
 // 표시를 만났을 때 다음 글자를 한다
 void testEvent() {
@@ -786,16 +831,16 @@ void testEvent() {
   if (!a) { testFinish("코스 글자를 다 썼어요"); return; }
   routeIdx++;
   if (a == '!') {   // 멈춤 시험: 분기를 알아보면 돌지 않고 바로 멈추고 어느 쪽인지 알림
-    Serial.printf("[멈춤 시험] 분기 발견 → 멈춤: %s에 선 (뒤왼쪽 %d · 뒤오른쪽 %d · 앞왼쪽 %d · 앞오른쪽 %d)\n",
+    Out.printf("[멈춤 시험] 분기 발견 → 멈춤: %s에 선 (뒤왼쪽 %d · 뒤오른쪽 %d · 앞왼쪽 %d · 앞오른쪽 %d)\n",
                   junctionL && junctionR ? "양쪽" : junctionL ? "왼쪽" : "오른쪽", (int)sLeft(), (int)sRight(), (int)sFrontL(), (int)sFrontR());
     testFinish("분기에서 멈춤");
     return;
   }
   if (a == '?') {   // 분기 시험: 선을 본 옆 센서 쪽으로 (양쪽 다면 T자·끝 표시 → 멈춤)
     a = (junctionL && junctionR) ? 'E' : junctionL ? 'L' : 'R';
-    Serial.printf("[분기 시험] %d번째: %s에 선 → %s\n", routeIdx, junctionL && junctionR ? "양쪽" : junctionL ? "왼쪽" : "오른쪽",
+    Out.printf("[분기 시험] %d번째: %s에 선 → %s\n", routeIdx, junctionL && junctionR ? "양쪽" : junctionL ? "왼쪽" : "오른쪽",
                   a == 'E' ? "멈춤" : a == 'L' ? "좌회전" : "우회전");
-  } else Serial.printf("[코스 시험] %d번째 표시 → %c\n", routeIdx, a);
+  } else Out.printf("[코스 시험] %d번째 표시 → %c\n", routeIdx, a);
   if (a == 'E') { testFinish("정지 (완료)"); return; }
   if (!doTurn(a, '-', true)) { testFinish("회전하다 선을 못 찾았어요"); return; }
   if (!testRoute[routeIdx]) testFinish("코스 글자를 다 썼어요");
@@ -819,14 +864,14 @@ void elevatorStep() {
     String revBefore = planRev;
     pollDrive();
     if (planRev != revBefore) {               // 기다리는 동안 취소·새 목적지 → 처음부터 다시 판단
-      Serial.println("[엘리베이터] 계획이 바뀌었어요");
+      Out.println("[엘리베이터] 계획이 바뀌었어요");
       state = ST_IDLE;
       return;
     }
     go = (serverPassed == exitNode.key);      // 로봇 화면에서 "내렸어요"를 누름
   }
   if (!go) return;
-  Serial.printf("[엘리베이터] %s 에서 다시 출발\n", exitNode.key);
+  Out.printf("[엘리베이터] %s 에서 다시 출발\n", exitNode.key);
   while (buttonPressed()) yield();
   heading = exitNode.heading;                 // 내려 준 사람이 출구 방향으로 놓아 준다고 본다
   if (serverPassed != exitNode.key) reportPassed(j + 1);
@@ -850,7 +895,7 @@ void traceStart() {
   followReset();
   traceStartAt = traceLastAt = traceLastPrint = millis();
   state = ST_TRACE;
-  Serial.printf("[선 시험] 시작 — 최대 %lu초, x 또는 BOOT 버튼으로 멈춤\n", (unsigned long)(TRACE_MS / 1000));
+  Out.printf("[선 시험] 시작 — 최대 %lu초, x 또는 BOOT 버튼으로 멈춤\n", (unsigned long)(TRACE_MS / 1000));
 }
 int tracePct(int i) {
   unsigned long all = traceMs[0] + traceMs[1] + traceMs[2] + traceMs[3];
@@ -858,24 +903,24 @@ int tracePct(int i) {
 }
 void tracePrint(const char* tag) {
   unsigned long sec = (millis() - traceStartAt) / 1000;
-  Serial.printf("[%s] %lu초 · 가운데 %d%% · 왼쪽으로 바로잡기 %d%% · 오른쪽으로 %d%% · 가로선 %d%% · 가장 긴 꺾기 %lu.%02lu초 · 지그재그 %d번 · 보정 %+.3f\n",
+  Out.printf("[%s] %lu초 · 가운데 %d%% · 왼쪽으로 바로잡기 %d%% · 오른쪽으로 %d%% · 가로선 %d%% · 가장 긴 꺾기 %lu.%02lu초 · 지그재그 %d번 · 보정 %+.3f\n",
     tag, sec, tracePct(0), tracePct(1), tracePct(2), tracePct(3), traceLongest / 1000, (traceLongest % 1000) / 10, traceSwitches, motorTrim);
 }
 void traceFinish(const char* why) {
   stopMotors();
   state = ST_IDLE;
   doneRev = planRev;
-  Serial.printf("[선 시험] 끝: %s\n", why);
+  Out.printf("[선 시험] 끝: %s\n", why);
   tracePrint("결과");
   int mid = tracePct(0), l = tracePct(1), r = tracePct(2);
   float secs = (millis() - traceStartAt) / 1000.0f;
   float zig = secs > 0 ? traceSwitches / secs : 0;
   bool good = true;
-  if (traceLongest >= TRACE_LOST_MS) { good = false; Serial.println("  ✗ 선을 놓쳤어요 → 곡선에서 늦게 꺾음: STEER_RAMP_MS 줄이기 또는 속도 낮추기(시리얼 -) (또는 LINE_IS_HIGH·센서 높이 확인)"); }
-  if (mid < 60) { good = false; Serial.printf("  △ 가운데 %d%% (60%% 이상이 좋음) → 바로잡기가 잦음: 선이 앞 두 센서 사이 가운데 오게 센서 간격 확인\n", mid); }
-  if (zig > 2.5f) { good = false; Serial.printf("  △ 지그재그 초당 %.1f번 → STEER_MIN 줄이기 (지금 %d)\n", zig, (int)STEER_MIN); }
-  if (l + r >= 10 && (l > 2 * r || r > 2 * l)) { good = false; Serial.printf("  △ %s으로만 자주 바로잡음 → 모터 힘 차이: 곧은 선에서 b 를 두세 번\n", l > r ? "왼쪽" : "오른쪽"); }
-  if (good) Serial.println("  ✓ 선을 잘 따라가요");
+  if (traceLongest >= TRACE_LOST_MS) { good = false; Out.println("  ✗ 선을 놓쳤어요 → 곡선에서 늦게 꺾음: STEER_RAMP_MS 줄이기 또는 속도 낮추기(시리얼 -) (또는 LINE_IS_HIGH·센서 높이 확인)"); }
+  if (mid < 60) { good = false; Out.printf("  △ 가운데 %d%% (60%% 이상이 좋음) → 바로잡기가 잦음: 선이 앞 두 센서 사이 가운데 오게 센서 간격 확인\n", mid); }
+  if (zig > 2.5f) { good = false; Out.printf("  △ 지그재그 초당 %.1f번 → STEER_MIN 줄이기 (지금 %d)\n", zig, (int)STEER_MIN); }
+  if (l + r >= 10 && (l > 2 * r || r > 2 * l)) { good = false; Out.printf("  △ %s으로만 자주 바로잡음 → 모터 힘 차이: 곧은 선에서 b 를 두세 번\n", l > r ? "왼쪽" : "오른쪽"); }
+  if (good) Out.println("  ✓ 선을 잘 따라가요");
   trimSave(false);
 }
 void traceStep() {
@@ -908,49 +953,49 @@ bool buttonClicked() {
 
 // ───────── 시리얼 점검 명령 ─────────
 void serialCommands() {
-  if (!Serial.available()) return;
-  char ch = Serial.read();
+  if (!In::available()) return;
+  char ch = In::read();
   if (ch == 's') {
-    Serial.println("센서 5초 — 1 = 검정 선을 봄. 선 가운데에 똑바로 두면 앞L 0 · 앞R 0 · 뒤 0 이 맞음 (선 위 센서가 0 이면 LINE_IS_HIGH 를 바꾸기)");
+    Out.println("센서 5초 — 1 = 검정 선을 봄. 선 가운데에 똑바로 두면 앞L 0 · 앞R 0 · 뒤 0 이 맞음 (선 위 센서가 0 이면 LINE_IS_HIGH 를 바꾸기)");
     for (int i = 0; i < 50; i++) {
-      Serial.printf("뒤왼쪽 %d  앞왼쪽 %d  앞오른쪽 %d  뒤오른쪽 %d", (int)sLeft(), (int)sFrontL(), (int)sFrontR(), (int)sRight());
+      Out.printf("뒤왼쪽 %d  앞왼쪽 %d  앞오른쪽 %d  뒤오른쪽 %d", (int)sLeft(), (int)sFrontL(), (int)sFrontR(), (int)sRight());
       if (SENSOR_LEFT_ANALOG || SENSOR_RIGHT_ANALOG)
-        Serial.printf("   (뒤 아날로그 원값 %d %d)", SENSOR_LEFT_ANALOG ? analogRead(PIN_SENSOR_LEFT) : -1, SENSOR_RIGHT_ANALOG ? analogRead(PIN_SENSOR_RIGHT) : -1);
-      Serial.println();
+        Out.printf("   (뒤 아날로그 원값 %d %d)", SENSOR_LEFT_ANALOG ? analogRead(PIN_SENSOR_LEFT) : -1, SENSOR_RIGHT_ANALOG ? analogRead(PIN_SENSOR_RIGHT) : -1);
+      Out.println();
       delay(100);
     }
   } else if (ch == 'u') {
-    if (PIN_SONAR_TRIG < 0) { Serial.println("초음파를 안 씀 (config.h 의 PIN_SONAR_TRIG)"); return; }
+    if (PIN_SONAR_TRIG < 0) { Out.println("초음파를 안 씀 (config.h 의 PIN_SONAR_TRIG)"); return; }
     for (int i = 0; i < 20; i++) {
       int cm = sonarCm();
-      if (cm < 0) Serial.printf("앞 %dcm 안에 없음\n", OBSTACLE_CLEAR_CM + 20); else Serial.printf("앞 %dcm%s\n", cm, cm < OBSTACLE_STOP_CM ? "  ← 멈춤 거리" : "");
+      if (cm < 0) Out.printf("앞 %dcm 안에 없음\n", OBSTACLE_CLEAR_CM + 20); else Out.printf("앞 %dcm%s\n", cm, cm < OBSTACLE_STOP_CM ? "  ← 멈춤 거리" : "");
       delay(200);
     }
   } else if (ch == 'm') {
-    Serial.println("[바퀴] 왼쪽 바퀴만 1초 앞으로");
+    Out.println("[바퀴] 왼쪽 바퀴만 1초 앞으로");
     drive(speedPwm, 0); delay(1000); stopMotors(); delay(500);
-    Serial.println("[바퀴] 오른쪽 바퀴만 1초 앞으로");
+    Out.println("[바퀴] 오른쪽 바퀴만 1초 앞으로");
     drive(0, speedPwm); delay(1000); stopMotors();
-    Serial.println("[바퀴] 뒤로 돈 바퀴가 있으면 config.h 의 LEFT_INVERT / RIGHT_INVERT 를 바꾸세요");
-  } else if (ch == 'f') { Serial.println("[바퀴] 1초 앞으로"); forwardFor(1000); }
-  else if (ch == 'l') { Serial.println("[바퀴] 0.5초 왼쪽 제자리 회전"); drive(-TURN_PWM, TURN_PWM); delay(500); stopMotors(); }
-  else if (ch == 'r') { Serial.println("[바퀴] 0.5초 오른쪽 제자리 회전"); drive(TURN_PWM, -TURN_PWM); delay(500); stopMotors(); }
+    Out.println("[바퀴] 뒤로 돈 바퀴가 있으면 config.h 의 LEFT_INVERT / RIGHT_INVERT 를 바꾸세요");
+  } else if (ch == 'f') { Out.println("[바퀴] 1초 앞으로"); forwardFor(1000); }
+  else if (ch == 'l') { Out.println("[바퀴] 0.5초 왼쪽 제자리 회전"); drive(-TURN_PWM, TURN_PWM); delay(500); stopMotors(); }
+  else if (ch == 'r') { Out.println("[바퀴] 0.5초 오른쪽 제자리 회전"); drive(TURN_PWM, -TURN_PWM); delay(500); stopMotors(); }
   else if (ch == 'c') {
-    Serial.println("5초 동안 선을 따라갑니다(교차로 무시). 간 거리(m) ÷ 5 = ROBOT_SPEED_MPS");
+    Out.println("5초 동안 선을 따라갑니다(교차로 무시). 간 거리(m) ÷ 5 = ROBOT_SPEED_MPS");
     followReset();
     unsigned long t0 = millis();
     while (millis() - t0 < 5000) { lineFollow(speedPwm, true); logDrive("속도"); yield(); }
     stopMotors();
     trimSave(false);
   } else if (ch == 'b') {
-    Serial.printf("[모터 보정] 10초 동안 곧은 선을 따라가며 좌우 힘을 맞춥니다 (지금 %+.3f)\n", motorTrim);
+    Out.printf("[모터 보정] 10초 동안 곧은 선을 따라가며 좌우 힘을 맞춥니다 (지금 %+.3f)\n", motorTrim);
     followReset();
     trimBoost = 5.0;
     unsigned long t0 = millis();
     while (millis() - t0 < 10000) { lineFollow(speedPwm, true); logDrive("보정"); yield(); }
     trimBoost = 1.0;
     stopMotors();
-    Serial.printf("[모터 보정] 결과 %+.3f — 한 번 더 하면 더 정확해요\n", motorTrim);
+    Out.printf("[모터 보정] 결과 %+.3f — 한 번 더 하면 더 정확해요\n", motorTrim);
     trimSave(true);
   } else if (ch == '[' || ch == ']') {
     setTrim(motorTrim + (ch == ']' ? 0.02f : -0.02f));   // ] 왼쪽을 세게 · [ 오른쪽을 세게
@@ -962,55 +1007,55 @@ void serialCommands() {
     speedPwm = constrain(speedPwm + (ch == '(' ? -5 : 5), (int)MIN_PWM, (int)PWM_MAX);   // 끊어 가기 중 돌릴 때의 세기
     speedSave();
   } else if (ch == 'w') {
-    Serial.println("[최소 세기] 두 바퀴를 아주 약하게부터 0.5초마다 5씩 올려요. 바퀴가 처음 도는 숫자를 기억하세요 (x 로 멈춤)");
+    Out.println("[최소 세기] 두 바퀴를 아주 약하게부터 0.5초마다 5씩 올려요. 바퀴가 처음 도는 숫자를 기억하세요 (x 로 멈춤)");
     for (int v = 40; v <= 200; v += 5) {
-      Serial.printf("  세기 %d\n", v);
+      Out.printf("  세기 %d\n", v);
       motor(PIN_LEFT_A, PIN_LEFT_B, PIN_LEFT_EN, v, LEFT_INVERT);       // 보정·최소 세기 올림 없이 그대로
       motor(PIN_RIGHT_A, PIN_RIGHT_B, PIN_RIGHT_EN, v, RIGHT_INVERT);
       unsigned long t0 = millis();
       bool stop = false;
-      while (millis() - t0 < 500) { if (Serial.available() && Serial.read() == 'x') stop = true; yield(); }
+      while (millis() - t0 < 500) { if (In::available() && In::read() == 'x') stop = true; yield(); }
       if (stop) break;
     }
     stopMotors();
-    Serial.println("[최소 세기] 끝 — 처음 돈 숫자보다 조금 높게 config.h 의 MIN_PWM 에");
+    Out.println("[최소 세기] 끝 — 처음 돈 숫자보다 조금 높게 config.h 의 MIN_PWM 에");
   } else if (ch == 'z') {
     setTrim(MOTOR_TRIM);
-    Serial.println("[모터 보정] config.h 의 MOTOR_TRIM 으로 되돌림");
+    Out.println("[모터 보정] config.h 의 MOTOR_TRIM 으로 되돌림");
     trimSave(true);
   } else if (ch == 't') {
-    if (state == ST_FOLLOW || state == ST_ELEVATOR) { Serial.println("서버 주행 중이라 시험할 수 없어요 (x 로 멈춘 뒤)"); return; }
+    if (state == ST_FOLLOW || state == ST_ELEVATOR) { Out.println("서버 주행 중이라 시험할 수 없어요 (x 로 멈춘 뒤)"); return; }
     traceStart();
   } else if (ch == 'h') {
-    if (state == ST_FOLLOW || state == ST_ELEVATOR) { Serial.println("서버 주행 중이라 시험할 수 없어요 (x 로 멈춘 뒤)"); return; }
+    if (state == ST_FOLLOW || state == ST_ELEVATOR) { Out.println("서버 주행 중이라 시험할 수 없어요 (x 로 멈춘 뒤)"); return; }
     testRoute = "!";   // 분기를 알아보면 멈춤
     testStart();
-    Serial.println("[멈춤 시험] 선을 따라가다 뒤 센서(차체 양옆)가 분기를 알아보면 바로 멈춰요");
+    Out.println("[멈춤 시험] 선을 따라가다 뒤 센서(차체 양옆)가 분기를 알아보면 바로 멈춰요");
   } else if (ch == 'j') {
-    if (state == ST_FOLLOW || state == ST_ELEVATOR) { Serial.println("서버 주행 중이라 시험할 수 없어요 (x 로 멈춘 뒤)"); return; }
+    if (state == ST_FOLLOW || state == ST_ELEVATOR) { Out.println("서버 주행 중이라 시험할 수 없어요 (x 로 멈춘 뒤)"); return; }
     testRoute = "??????????";   // 분기를 만날 때마다 선이 있는 쪽으로 (최대 10번)
     testStart();
-    Serial.printf("[분기 시험] 선을 따라가다 뒤 센서가 옆에 선을 보면 그쪽으로 돌아요 (양쪽이면 멈춤) · 회전 전 전진 %dms\n", turnForwardMs);
+    Out.printf("[분기 시험] 선을 따라가다 뒤 센서가 옆에 선을 보면 그쪽으로 돌아요 (양쪽이면 멈춤) · 회전 전 전진 %dms\n", turnForwardMs);
   } else if (ch == ',' || ch == '.') {
     turnForwardMs = constrain(turnForwardMs + (ch == '.' ? 20 : -20), 0, 1500);
     speedSave();
   } else if (ch == 'k') {
     testRoute = TEST_ROUTE;
-    if (state == ST_FOLLOW || state == ST_ELEVATOR) { Serial.println("서버 주행 중이라 시험할 수 없어요 (x 로 멈춘 뒤)"); return; }
+    if (state == ST_FOLLOW || state == ST_ELEVATOR) { Out.println("서버 주행 중이라 시험할 수 없어요 (x 로 멈춘 뒤)"); return; }
     testStart();
   } else if (ch == 'v') {
     verbose = !verbose;
-    Serial.printf("주행 기록 %s (0.1초마다 센서·바퀴·초음파)\n", verbose ? "켬" : "끔");
+    Out.printf("주행 기록 %s (0.1초마다 센서·바퀴·초음파)\n", verbose ? "켬" : "끔");
   } else if (ch == 'p') {
-    Serial.printf("모드 %s · rev %s · 방향 %c · 모터 보정 %+.3f · 세기 %d (최소 %d, PWM %dHz) · 끊어 가기 %d%% · 회전 전 전진 %dms\n", serverMode.c_str(), planRev.c_str(), heading, motorTrim, speedPwm, (int)MIN_PWM, (int)PWM_FREQ, speedDuty, turnForwardMs);
-    for (int i = 0; i < planLen; i++) Serial.printf("  %-8s %c %c %.2fm %d\n", plan[i].key, plan[i].action, plan[i].heading, plan[i].nextM, plan[i].toFloor);
+    Out.printf("모드 %s · rev %s · 방향 %c · 모터 보정 %+.3f · 세기 %d (최소 %d, PWM %dHz) · 끊어 가기 %d%% · 회전 전 전진 %dms\n", serverMode.c_str(), planRev.c_str(), heading, motorTrim, speedPwm, (int)MIN_PWM, (int)PWM_FREQ, speedDuty, turnForwardMs);
+    for (int i = 0; i < planLen; i++) Out.printf("  %-8s %c %c %.2fm %d\n", plan[i].key, plan[i].action, plan[i].heading, plan[i].nextM, plan[i].toFloor);
   } else if (ch == 'x') {
     stopMotors();
     trimSave(false);
     if (state == ST_TEST) testFinish("x 로 멈춤");
     else if (state == ST_TRACE) traceFinish("x 로 멈춤");
     else { if (state == ST_FOLLOW || state == ST_ELEVATOR) doneRev = planRev; state = ST_IDLE; }
-    Serial.println("[멈춤]");
+    Out.println("[멈춤]");
   }
 }
 
@@ -1061,20 +1106,20 @@ const char* encName(int t) {
 // scan: 보이는 WiFi 목록까지 (그 사이에는 이유만 출력하고 연결 시도는 건드리지 않음)
 void wifiHelp(bool scan) {
   int st = WiFi.status();
-  Serial.printf("\n[WiFi] \"%s\" 에 20초 동안 못 붙었어요 (상태 %d%s)\n", WIFI_SSID, st,
+  Out.printf("\n[WiFi] \"%s\" 에 20초 동안 못 붙었어요 (상태 %d%s)\n", WIFI_SSID, st,
     st == WL_NO_SSID_AVAIL ? ": 이 이름의 WiFi 가 안 보임" : st == WL_CONNECT_FAILED ? ": 비밀번호가 틀렸거나 지원하지 않는 방식" :
 #if !defined(ESP32)
     st == WL_WRONG_PASSWORD ? ": 비밀번호가 틀림" :
 #endif
     "");
 #if defined(ESP32)
-  if (wifiReason) Serial.printf("[WiFi] 지금까지 %lu번 끊김, 마지막 이유 %d (%s) %s\n", (unsigned long)wifiReasonCount, wifiReason,
+  if (wifiReason) Out.printf("[WiFi] 지금까지 %lu번 끊김, 마지막 이유 %d (%s) %s\n", (unsigned long)wifiReasonCount, wifiReason,
                                 WiFi.disconnectReasonName((wifi_err_reason_t)wifiReason), reasonHelp(wifiReason));
-  else Serial.println("[WiFi] 끊긴 기록 없음 → 연결 시도 자체가 안 되고 있어요");
+  else Out.println("[WiFi] 끊긴 기록 없음 → 연결 시도 자체가 안 되고 있어요");
 #endif
-  Serial.printf("[WiFi] config.h 의 비밀번호 길이: %d바이트 (WPA2 는 8~63자, 실제 비밀번호 글자 수와 같은지 확인)\n", (int)strlen(WIFI_PASS));
-  if (strcmp(WIFI_SSID, "학교WiFi이름") == 0) Serial.println("[WiFi] config.h 의 WIFI_SSID·WIFI_PASS 를 아직 안 고쳤어요 (config.h 가 없으면 config.example.h 로 올라감)");
-  if (!scan) { Serial.print("[WiFi] 계속 연결 중"); return; }
+  Out.printf("[WiFi] config.h 의 비밀번호 길이: %d바이트 (WPA2 는 8~63자, 실제 비밀번호 글자 수와 같은지 확인)\n", (int)strlen(WIFI_PASS));
+  if (strcmp(WIFI_SSID, "학교WiFi이름") == 0) Out.println("[WiFi] config.h 의 WIFI_SSID·WIFI_PASS 를 아직 안 고쳤어요 (config.h 가 없으면 config.example.h 로 올라감)");
+  if (!scan) { Out.print("[WiFi] 계속 연결 중"); return; }
 #if defined(ESP32)
   wifiQuiet = true;
 #endif
@@ -1086,7 +1131,7 @@ void wifiHelp(bool scan) {
   char want[48], key[48];
   ssidKey(WIFI_SSID, want, sizeof want);
   bool exact = false, similar = false;
-  Serial.printf("[WiFi] 지금 보이는 WiFi %d개 (2.4GHz 만 보여요)  ▶ 같은 이름 · ? 비슷한 이름\n", n < 0 ? 0 : n);
+  Out.printf("[WiFi] 지금 보이는 WiFi %d개 (2.4GHz 만 보여요)  ▶ 같은 이름 · ? 비슷한 이름\n", n < 0 ? 0 : n);
   for (int i = 0; i < n; i++) {
     String name = WiFi.SSID(i);
     ssidKey(name.c_str(), key, sizeof key);
@@ -1094,18 +1139,18 @@ void wifiHelp(bool scan) {
     bool like = !same && strcmp(key, want) == 0;
     exact = exact || same;
     similar = similar || like;
-    Serial.printf("  %s \"%s\"  신호 %d  %s\n", same ? "▶" : like ? "?" : " ", name.c_str(), (int)WiFi.RSSI(i), encName(WiFi.encryptionType(i)));
+    Out.printf("  %s \"%s\"  신호 %d  %s\n", same ? "▶" : like ? "?" : " ", name.c_str(), (int)WiFi.RSSI(i), encName(WiFi.encryptionType(i)));
   }
-  if (exact) Serial.println("[WiFi] 이름은 맞아요 → WIFI_PASS(비밀번호)를 확인하세요. '아이디+비밀번호' 방식이면 펌웨어에 기능을 추가해야 해요.");
-  else if (similar) Serial.println("[WiFi] ? 이름과 똑같이(대소문자·띄어쓰기·’ 따옴표까지) config.h 의 WIFI_SSID 를 고치세요. 목록 글자를 그대로 복사하면 정확해요.");
-  else Serial.println("[WiFi] 같은 이름이 안 보여요 → 5GHz 전용인지 확인하세요. iPhone 핫스팟은 '호환성 최대화'를 켜고 핫스팟 설정 화면을 열어 두세요.");
+  if (exact) Out.println("[WiFi] 이름은 맞아요 → WIFI_PASS(비밀번호)를 확인하세요. '아이디+비밀번호' 방식이면 펌웨어에 기능을 추가해야 해요.");
+  else if (similar) Out.println("[WiFi] ? 이름과 똑같이(대소문자·띄어쓰기·’ 따옴표까지) config.h 의 WIFI_SSID 를 고치세요. 목록 글자를 그대로 복사하면 정확해요.");
+  else Out.println("[WiFi] 같은 이름이 안 보여요 → 5GHz 전용인지 확인하세요. iPhone 핫스팟은 '호환성 최대화'를 켜고 핫스팟 설정 화면을 열어 두세요.");
   WiFi.scanDelete();
   WiFi.setAutoReconnect(true);
 #if defined(ESP32)
   wifiQuiet = false;
 #endif
   WiFi.reconnect();   // 설정은 그대로 두고 다시 연결 (begin 을 다시 부르면 연결 중일 때 "cannot set config" 오류)
-  Serial.print("[WiFi] 다시 연결 중");
+  Out.print("[WiFi] 다시 연결 중");
 }
 
 bool serverReady = false;      // WiFi 가 붙고 서버에서 처음 상태를 읽었음
@@ -1126,7 +1171,7 @@ int sensorPinMode(int pin) {
 void setup() {
   Serial.begin(115200);
   delay(100);
-  Serial.println("\n피콕 로봇 몸체 시작");
+  Out.println("\n피콕 로봇 몸체 시작");
   pinMode(PIN_LEFT_A, OUTPUT); pinMode(PIN_LEFT_B, OUTPUT);
   pinMode(PIN_RIGHT_A, OUTPUT); pinMode(PIN_RIGHT_B, OUTPUT);
   if (PIN_LEFT_EN >= 0) pinMode(PIN_LEFT_EN, OUTPUT);
@@ -1150,7 +1195,7 @@ void setup() {
   stopMotors();
 #endif
   trimLoad();
-  Serial.printf("모터 보정 %+.3f (왼쪽 x%.2f · 오른쪽 x%.2f) · 세기 %d · 끊어 가기 %d%% · PWM %dHz\n", motorTrim, 1 + motorTrim, 1 - motorTrim, speedPwm, speedDuty, (int)PWM_FREQ);
+  Out.printf("모터 보정 %+.3f (왼쪽 x%.2f · 오른쪽 x%.2f) · 세기 %d · 끊어 가기 %d%% · PWM %dHz\n", motorTrim, 1 + motorTrim, 1 - motorTrim, speedPwm, speedDuty, (int)PWM_FREQ);
 
 #if defined(ESP32)
   WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t info) {
@@ -1161,7 +1206,7 @@ void setup() {
 #endif
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
-  Serial.printf("\nWiFi \"%s\" 연결 중 — 그동안에도 시리얼 시험 명령(s m t b k …)·BOOT 버튼 선 시험은 바로 쓸 수 있어요\n", WIFI_SSID);
+  Out.printf("\nWiFi \"%s\" 연결 중 — 그동안에도 시리얼 시험 명령(s m t b k …)·BOOT 버튼 선 시험은 바로 쓸 수 있어요\n", WIFI_SSID);
   // HTTPS: 인증서 검사를 하지 않는 간단한 방식(학교 WiFi 안에서 사용). 보안을 높이려면 README 참고.
   tls.setInsecure();
   wifiStart = millis();
@@ -1172,7 +1217,7 @@ void setup() {
 void wifiTick() {
   bool busy = state == ST_FOLLOW || state == ST_TEST || state == ST_TRACE || state == ST_ELEVATOR;
   if (WiFi.status() == WL_CONNECTED) {
-    if (!wifiAnnounced) { wifiAnnounced = true; Serial.printf("\nWiFi 연결됨: %s\n", WiFi.localIP().toString().c_str()); }
+    if (!wifiAnnounced) { wifiAnnounced = true; Out.printf("\nWiFi 연결됨: %s\n", WiFi.localIP().toString().c_str()); }
     if (!serverReady && !busy) {
 #if !defined(ESP32)
       tls.setSession(&tlsSession);               // 다시 접속할 때 빠르게
@@ -1182,21 +1227,62 @@ void wifiTick() {
       doneRev = planRev;                         // 켜기 전에 남아 있던 계획은 다시 달리지 않는다
       serverReady = true;
       lastPoll = millis();
-      Serial.printf("서버 연결됨 · 모드 %s\n", serverMode.c_str());
+      Out.printf("서버 연결됨 · 모드 %s\n", serverMode.c_str());
     }
     return;
   }
-  if (wifiAnnounced) { wifiAnnounced = false; wifiStart = millis(); Serial.print("\n[WiFi] 끊김 — 다시 연결 중"); }
+  if (wifiAnnounced) { wifiAnnounced = false; wifiStart = millis(); Out.print("\n[WiFi] 끊김 — 다시 연결 중"); }
   if (busy) return;
-  if (millis() - wifiDotAt >= 1000) { wifiDotAt = millis(); Serial.print('.'); }
+  if (millis() - wifiDotAt >= 1000) { wifiDotAt = millis(); Out.print('.'); }
 #if defined(ESP32)
   int r = wifiReason;   // 끊긴 이유가 바뀔 때마다 바로 보여 줌
-  if (r && r != shownReason) { shownReason = r; Serial.printf("\n[WiFi] 끊김: 이유 %d (%s) %s\n", r, WiFi.disconnectReasonName((wifi_err_reason_t)r), reasonHelp(r)); }
+  if (r && r != shownReason) { shownReason = r; Out.printf("\n[WiFi] 끊김: 이유 %d (%s) %s\n", r, WiFi.disconnectReasonName((wifi_err_reason_t)r), reasonHelp(r)); }
 #endif
   if (millis() - wifiStart > 20000) { wifiHelp(wifiFails++ % 3 == 0); wifiStart = millis(); }   // 목록은 1분마다
 }
 
+// WiFi 가 붙으면 무선 시리얼·무선 업로드 시작, 그 뒤로는 연결 받기·업로드 처리·연결 끊김이면 시험 멈춤
+void wirelessTick() {
+#if defined(ESP32)
+  if (WiFi.status() != WL_CONNECTED) return;
+  if (!wirelessStarted) {
+    wirelessStarted = true;
+    telnetServer.begin();
+    telnetServer.setNoDelay(true);
+    ArduinoOTA.setHostname("peekok-robot");
+    ArduinoOTA.setPassword(OTA_PASS);
+    ArduinoOTA.onStart([]() { stopMotors(); state = ST_IDLE; Out.println("[무선 업로드] 시작 — 모터 멈춤"); });
+    ArduinoOTA.onEnd([]() { Out.println("[무선 업로드] 끝 — 다시 켜짐"); });
+    ArduinoOTA.onError([](ota_error_t e) { Out.printf("[무선 업로드] 오류 %d\n", (int)e); });
+    ArduinoOTA.begin();
+    MDNS.addService("telnet", "tcp", 2323);
+    Out.printf("[무선] 준비됨 — IP %s · 이름 peekok-robot.local · 시리얼 2323 · 무선 업로드 가능\n", WiFi.localIP().toString().c_str());
+  }
+  ArduinoOTA.handle();
+  bool conn = telnet && telnet.connected();
+  if (telnetWasConnected && !conn) {
+    telnetWasConnected = false;
+    if (state == ST_TEST || state == ST_TRACE) { abortMotion = true; Serial.println("[무선] 연결 끊김 → 시험 멈춤"); }
+  }
+  if (telnetServer.hasClient()) {
+    if (telnet && telnet.connected()) telnet.stop();
+    telnet = telnetServer.available();
+    telnet.setNoDelay(true);
+    telnetWasConnected = true;
+    Out.printf("[무선] 시리얼 연결됨 (%s)\n", telnet.remoteIP().toString().c_str());
+  }
+#endif
+}
+
 void loop() {
+  wirelessTick();
+  if (abortMotion) {                 // 멈춤 요청 처리 (오래 걸리는 동작에서 빠져나온 뒤)
+    abortMotion = false;
+    stopMotors();
+    if (state == ST_TEST) testFinish("멈춤 요청");
+    else if (state == ST_TRACE) traceFinish("멈춤 요청");
+    else if (state == ST_FOLLOW || state == ST_ELEVATOR) { doneRev = planRev; state = ST_IDLE; }
+  }
   serialCommands();
   wifiTick();
   // WiFi·서버가 아직(또는 끊김)이면 대기 중에는 서버 확인만 건너뜀 — 시리얼 시험과 BOOT 버튼 선 시험은 그대로 됨
@@ -1204,7 +1290,7 @@ void loop() {
     stopMotors();
     led((millis() / 150) % 2);
     if (buttonClicked()) {
-      Serial.println("\n[선 시험] BOOT 버튼 — 2초 뒤 출발");
+      Out.println("\n[선 시험] BOOT 버튼 — 2초 뒤 출발");
       for (int i = 0; i < 10; i++) { led(i % 2); delay(200); }
       traceStart();
     }
@@ -1217,7 +1303,7 @@ void loop() {
       stopMotors();
       led(state == ST_ERROR ? (millis() / 200) % 2 : (millis() / 1000) % 2);
       if (buttonClicked()) {                    // 대기 중 BOOT 버튼 = 선 따라가기 시험 (2초 뒤 출발, USB 없이도)
-        Serial.println("[선 시험] BOOT 버튼 — 2초 뒤 출발");
+        Out.println("[선 시험] BOOT 버튼 — 2초 뒤 출발");
         for (int i = 0; i < 10; i++) { led(i % 2); delay(200); }
         traceStart();
         break;
@@ -1227,7 +1313,7 @@ void loop() {
         if (pollDrive()) {
           bool moving = serverMode == "to_caller" || serverMode == "delivering" || serverMode == "guiding" || serverMode == "returning";
           if (moving && planLen >= 2 && planRev != doneRev) {
-            if (state == ST_ERROR) Serial.println("[다시 시도] 새 계획");
+            if (state == ST_ERROR) Out.println("[다시 시도] 새 계획");
             beginPlan();
           }
         }
@@ -1241,7 +1327,7 @@ void loop() {
       bool moving = serverMode == "to_caller" || serverMode == "delivering" || serverMode == "guiding" || serverMode == "returning";
       if (state == ST_FOLLOW && (planRev != revBefore || !moving)) {
         stopMotors();
-        Serial.println("[계획 바뀜] 멈추고 다시 판단");
+        Out.println("[계획 바뀜] 멈추고 다시 판단");
         state = ST_IDLE;
         if (moving && planLen >= 2) beginPlan();
       }

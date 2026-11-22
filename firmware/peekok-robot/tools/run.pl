@@ -1,9 +1,9 @@
 #!/usr/bin/perl
 # 피콕 로봇 시험 바로 실행 (업로드 없음): 보드에 시험 명령을 보내고 시리얼을 보여 준다.
-#   run        자동 (a): 한쪽 분기 → 그쪽, T자 → 유턴, 유턴 다음 T자 = 직진 도로
+#   run        분기 시험 (j): 한쪽 분기 → 그쪽으로 회전, 양쪽이면 멈춤
 #   run k      순서 코스 시험
 #   run j      분기 시험 · run h 멈춤 시험 · run t 선 따라가기 시험 · run s 센서 보기
-#   run v      자동 + 0.1초마다 센서·바퀴 기록
+#   run v      분기 시험 + 0.1초마다 센서·바퀴 기록
 #   run -      아무 시험도 안 하고 시리얼만 보기
 #   run w ...  USB 가 꽂혀 있어도 WiFi 로 (USB 가 없으면 자동으로 WiFi)
 # 실행 중에 글자를 치고 엔터: 그대로 보드에 보냄 (예: x 멈춤 · PuPwm=130 설정 바꾸기 · P 설정 목록)
@@ -14,9 +14,9 @@ use IO::Select;
 
 my $wifi = 0;
 if (@ARGV && $ARGV[0] eq 'w') { $wifi = 1; shift; }
-my $mode = shift // 'a';
+my $mode = shift // 'j';
 my $verbose = 0;
-if ($mode eq 'v') { $mode = 'a'; $verbose = 1; }
+if ($mode eq 'v') { $mode = 'j'; $verbose = 1; }
 
 # USB 로 꽂혀 있으면 USB, 아니면 WiFi(peekok-robot.local:2323 · ROBOT_HOST 로 바꿀 수 있음). run w ... 는 늘 WiFi
 opendir(my $d, "/dev") or die;
