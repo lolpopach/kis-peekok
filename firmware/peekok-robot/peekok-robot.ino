@@ -761,7 +761,8 @@ bool arcToLine(int dir, unsigned long ignoreMs = 0) {
     bool trail = dir > 0 ? sFrontL() : sFrontR();
     if (moveMs - m0 < ignoreMs) { yield(); continue; }
     if (!leadSeen) { if (lead) { leadSeen = true; Serial.printf("[회전] 앞 %s 센서가 새 선에 닿음\n", dir > 0 ? "오른쪽" : "왼쪽"); } }
-    else if (trail) { stopMotors(); Serial.printf("[회전] 앞 %s 센서도 닿음 → 직진 구간\n", dir > 0 ? "왼쪽" : "오른쪽"); delay(80); return true; }
+    else if (trail && passedAt) { stopMotors(); Serial.printf("[회전] 앞 %s 센서도 닿음 → 직진 구간\n", dir > 0 ? "왼쪽" : "오른쪽"); delay(80); return true; }
+    // 도는 쪽 앞 센서가 아직 새 선 위일 때 반대쪽이 보는 검정은 다른 선(본선) → 무시
     else if (!lead) {            // 도는 쪽 앞 센서가 선을 지나감 = 선이 두 센서 사이 → ARC_SETTLE_MS 안에 반대쪽이 안 닿으면 그대로 멈춤
       if (!passedAt) passedAt = moveMs + 1;
       if (moveMs + 1 - passedAt >= ARC_SETTLE_MS) { stopMotors(); Serial.println("[회전] 선이 앞 센서 사이에 들어옴 → 직진 구간"); delay(80); return true; }
@@ -788,7 +789,7 @@ bool spinUturn(int dir, unsigned long ignoreMs) {
     bool trail = dir > 0 ? sFrontL() : sFrontR();
     if (moveMs - m0 < ignoreMs) { yield(); continue; }
     if (!leadSeen) { if (lead) { leadSeen = true; Serial.printf("[유턴] 앞 %s 센서가 선에 닿음\n", dir > 0 ? "오른쪽" : "왼쪽"); } }
-    else if (trail) { ok = true; Serial.printf("[유턴] 앞 %s 센서도 닿음\n", dir > 0 ? "왼쪽" : "오른쪽"); break; }
+    else if (trail && passedAt) { ok = true; Serial.printf("[유턴] 앞 %s 센서도 닿음\n", dir > 0 ? "왼쪽" : "오른쪽"); break; }
     else if (!lead) {
       if (!passedAt) passedAt = moveMs + 1;
       if (moveMs + 1 - passedAt >= ARC_SETTLE_MS) { ok = true; Serial.println("[유턴] 선이 앞 센서 사이에 들어옴"); break; }
