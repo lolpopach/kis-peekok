@@ -112,6 +112,9 @@
 #ifndef COUNTER_MAX_MS
 #define COUNTER_MAX_MS 150
 #endif
+#ifndef SPIN_SETTLE_MS
+#define SPIN_SETTLE_MS 600
+#endif
 #ifndef PWM_FREQ
 #define PWM_FREQ 1000
 #endif
@@ -526,21 +529,34 @@ bool reportPassed(int i) {
 // 제자리 회전 한 번: dir +1 오른쪽 = 왼쪽 바퀴 앞으로 · 오른쪽 바퀴 뒤로, -1 왼쪽은 반대
 void spinDrive(int dir) { driveP(dir * TURN_PWM, dir * -TURN_PWM); }
 // minMs·TURN_TIMEOUT_MS 는 바퀴를 실제로 돌린 시간 기준 (끊어 가기로 느려도 같은 각도)
+// 새 선을 앞 두 센서 사이에 넣고 멈춘다:
+//   ① 도는 쪽 앞 센서(우회전이면 앞 오른쪽)가 새 선에 닿음 → ② 그 센서가 선을 지나감(선이 두 센서 사이로)
+//   → ③ 반대쪽 앞 센서(앞 왼쪽)가 선에 닿으면 멈춤. 그 뒤 선 따라가기가 가운데로 맞춘다.
+//   ③ 이 SPIN_SETTLE_MS 안에 안 오면 ② 상태(선이 사이에 있음)로 멈춤.
 bool spinToLine(int dir, unsigned long minMs) {
   unsigned long m0 = moveMs, t0 = millis();
   moveLastAt = 0;
   bool sawFloor = false;
+  int phase = 0;                 // 0 새 선 찾기 · 1 앞 센서가 선 위 · 2 선이 두 센서 사이
+  unsigned long passedAt = 0;
   while (moveMs - m0 < TURN_TIMEOUT_MS && millis() - t0 < TURN_TIMEOUT_MS * 12UL) {
     spinDrive(dir);
-    bool c = dir > 0 ? sFrontR() : sFrontL();
+    bool lead = dir > 0 ? sFrontR() : sFrontL();
+    bool trail = dir > 0 ? sFrontL() : sFrontR();
     if (moveMs - m0 >= minMs) {
-      if (!c) sawFloor = true;
-      else if (sawFloor) { stopMotors(); delay(80); return true; }
+      if (phase == 0) {
+        if (!lead) sawFloor = true;
+        else if (sawFloor) phase = 1;
+      } else if (phase == 1) {
+        if (!lead) { phase = 2; passedAt = moveMs; }
+      } else {
+        if (trail || moveMs - passedAt >= SPIN_SETTLE_MS) { stopMotors(); delay(80); return true; }
+      }
     }
     yield();
   }
   stopMotors();
-  return false;
+  return phase >= 1;             // 선에 닿기라도 했으면 성공으로 봄
 }
 // 핸들을 고정하고 곧장 ms 동안 (교차로 통과·바퀴 축 맞추기)
 // ms 는 바퀴를 실제로 돌린 시간 기준 (끊어 가기로 느려도 같은 거리)

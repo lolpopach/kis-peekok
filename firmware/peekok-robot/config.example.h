@@ -103,6 +103,7 @@
 #define CROSS_CLEAR_MS   250    // 교차로를 곧장 지날 때 핸들을 고정하고 가는 시간
 #define TURN_MIN_MS      150    // 90도 회전: 이 시간 동안은 선을 무시하고 돈다 (지금 선을 벗어나기)
 #define UTURN_MIN_MS     450    // 유턴: 이 시간 동안은 선을 무시하고 돈다
+#define SPIN_SETTLE_MS   600    // 회전: 앞 센서가 새 선을 지난 뒤 반대쪽 앞 센서가 이 시간(돌린 시간) 안에 선에 안 닿으면 그대로 멈춤
 #define TURN_TIMEOUT_MS  4000   // 회전하다 이 시간 안에 선을 못 찾으면 멈춤
 
 // ── 장애물 (초음파, PIN_SONAR_TRIG 를 달았을 때만) ──
