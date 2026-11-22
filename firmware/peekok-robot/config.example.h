@@ -74,8 +74,8 @@
 #define PWM_FREQ         200    // 모터 PWM 주파수(Hz) — 낮을수록 약한 세기에서도 바퀴가 돌아 천천히 달릴 수 있음
 #define MIN_PWM          (PWM_MAX * 80 / 255)    // 이보다 약하면 바퀴가 안 도는 세기 — 시리얼 'w' 로 찾아 맞추기. 0 이 아닌 값은 이 이상으로 올림
 #define SPEED_PWM        (PWM_MAX * 95 / 255)    // 선 따라갈 때 기본 세기 (처음 값 — 시리얼 + / - 로 바꾸면 보드에 기억)
-#define SPEED_DUTY       65     // 느리게 달리기: PULSE_MS 중 바퀴를 돌리는 비율(%) — 100 이면 끊지 않음. 시리얼 + / - 로 ±5 (보드에 기억)
-#define PULSE_MS         150    // 끊어 가기 한 주기(ms)
+#define SPEED_DUTY       40     // 느리게 달리기: PULSE_MS 중 바퀴를 돌리는 비율(%) — 100 이면 끊지 않음. 시리얼 + / - 로 ±5 (보드에 기억)
+#define PULSE_MS         250    // 끊어 가기 한 주기(ms)
 #define TURN_PWM         (PWM_MAX * 120 / 255)   // 제자리 회전 세기
 #define ROBOT_SPEED_MPS  0.30   // SPEED_PWM 으로 선을 따라갈 때 실제 속도(m/s) — 시리얼 'c' 명령으로 재서 맞추세요
 
@@ -86,6 +86,8 @@
 #define STEER_RAMP_MS    600    // STEER_MIN → MAX 까지 걸리는 시간 (곡선에서 선을 놓치면 줄이기, 지그재그가 크면 늘리기)
 #define COUNTER_RATIO    0.0    // 흔들림 줄이기: 바로잡기가 끝나면 그 시간의 이 비율만큼 반대로 살짝(STEER_MIN) 꺾음 (0 = 안 함)
 #define COUNTER_MAX_MS   150    // 반대로 꺾는 최대 시간
+#define RECOVER_CONFIRM_MS 50   // 선 되찾기: 뒤 센서가 이만큼 계속 선을 봐야 함 (잡음 거르기)
+#define RECOVER_PAIR_MS  500    // 선 되찾기: 같은 쪽 앞 센서가 이 시간(바퀴 돌린 시간) 안에 선을 봤어야 "놓친 것"으로 봄
 #define RECOVER_MAX_MS   1500   // 선 되찾기: 앞 센서가 놓치고 뒤 센서가 본 쪽으로 꺾을 때, 이 시간(바퀴 돌린 시간) 안에 앞 센서가 선을 못 잡으면 그만둠
 #define LOST_LINE_MS     3000   // 서버 주행: 다음 교차로가 예상 시간의 2배 + 이 시간이 지나도 안 나오면 멈춤
 

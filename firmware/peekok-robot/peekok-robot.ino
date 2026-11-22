@@ -115,6 +115,12 @@
 #ifndef BRANCH_PAIR_MS
 #define BRANCH_PAIR_MS 1500
 #endif
+#ifndef RECOVER_CONFIRM_MS
+#define RECOVER_CONFIRM_MS 50
+#endif
+#ifndef RECOVER_PAIR_MS
+#define RECOVER_PAIR_MS 500
+#endif
 #ifndef RECOVER_MAX_MS
 #define RECOVER_MAX_MS 1500
 #endif
@@ -184,6 +190,7 @@ float trimBoost = 1.0;        // 'b' 보정 주행 중에는 더 빨리 배움
 int speedPwm = SPEED_PWM;     // 선 따라갈 때 기본 세기 — 시리얼 + / - 로 바꾸고 보드에 기억
 unsigned long allBlackSince = 0;
 int recoverDir = 0;           // 선 되찾기 중이면 꺾는 쪽 (-1 왼쪽 · 1 오른쪽)
+unsigned long rearLSince = 0, rearRSince = 0;   // 뒤 센서가 선을 보기 시작한 때 (선 되찾기 잡음 거르기)
 unsigned long recoverStartMove = 0;
 int counterSide = 0;          // 바로잡기가 끝난 직후 반대로 살짝 꺾는 쪽 (흔들림 줄이기)
 unsigned long counterUntil = 0;
@@ -360,6 +367,7 @@ bool obstacleHold() {
 
 // ───────── 선 따라가기 · 교차로 감지 ─────────
 // 앞 두 센서 사이에 선을 두고 달린다. 한 번 부를 때마다 바퀴 세기를 정함.
+int rearLostDir();
 void lineFollow(int base, bool sideRecover = false) {
   unsigned long now = millis();
   unsigned long dt = (lastFollowAt && now - lastFollowAt < 100) ? now - lastFollowAt : 0;   // 오래 쉬었으면 배우지 않음
@@ -378,6 +386,12 @@ void lineFollow(int base, bool sideRecover = false) {
     followSide = side; followSince = now;
   }
   if (fl || fr) lineSeenAt = now;
+  if (fl) frontLSeenMove = moveMs + 1;
+  if (fr) frontRSeenMove = moveMs + 1;
+  // 뒤 센서가 선을 계속 본 시간 (잡음 거르기)
+  bool rl = sLeft(), rr = sRight();
+  if (rl) { if (!rearLSince) rearLSince = now; } else rearLSince = 0;
+  if (rr) { if (!rearRSince) rearRSince = now; } else rearRSince = 0;
   // 선 되찾기 (sideRecover: 선 시험·속도 재기·모터 맞추기에서만): 앞 두 센서가 다 놓쳤는데 뒤 센서 한쪽이 선을 보면
   // 그쪽으로 크게 꺾기 시작하고, 뒤 센서가 선을 벗어나도 계속 꺾다가 앞 센서가 선을 다시 잡는 순간 평소 따라가기로 돌아감.
   // 뒤 센서는 방향만 알려 줄 뿐, 선을 따라가는 건 언제나 앞 센서.
@@ -386,8 +400,8 @@ void lineFollow(int base, bool sideRecover = false) {
       if (fl || fr) { Serial.println("[선 되찾기] 앞 센서가 선을 다시 잡음"); recoverDir = 0; }
       else if (moveMs - recoverStartMove > RECOVER_MAX_MS) { Serial.println("[선 되찾기] 못 찾음 — 그만둠"); recoverDir = 0; }
       else { driveP(base + recoverDir * STEER_MAX, base - recoverDir * STEER_MAX); return; }
-    } else if (!fl && !fr && sLeft() != sRight()) {
-      recoverDir = sLeft() ? -1 : 1;
+    } else if (!fl && !fr && rearLostDir() != 0) {
+      recoverDir = rearLostDir();
       recoverStartMove = moveMs;
       Serial.printf("[선 되찾기] 앞 센서가 놓침 — 뒤 %s 센서 쪽으로\n", recoverDir < 0 ? "왼쪽" : "오른쪽");
       driveP(base + recoverDir * STEER_MAX, base - recoverDir * STEER_MAX);
@@ -411,8 +425,17 @@ bool liftedNow() {
   if (!allBlackSince) allBlackSince = millis();
   return millis() - allBlackSince >= (junctionArmed ? LIFT_MS : LIFT_MS * 3UL);   // 회전 직후엔 교차점 위라 더 기다림
 }
+// 선을 진짜 놓쳤는지: 같은 쪽 앞 센서가 방금(RECOVER_PAIR_MS 안) 선을 보고 바로잡던 중이었고,
+// 그 쪽 뒤 센서가 RECOVER_CONFIRM_MS 넘게 계속 선을 봄 → 선이 앞 센서 바깥으로 빠져나간 것. 그 쪽(-1/1), 아니면 0
+int rearLostDir() {
+  unsigned long now = millis();
+  bool l = rearLSince && now - rearLSince >= RECOVER_CONFIRM_MS && frontLSeenMove && moveMs + 1 - frontLSeenMove <= RECOVER_PAIR_MS;
+  bool r = rearRSince && now - rearRSince >= RECOVER_CONFIRM_MS && frontRSeenMove && moveMs + 1 - frontRSeenMove <= RECOVER_PAIR_MS;
+  if (l == r) return 0;
+  return l ? -1 : 1;
+}
 // 새로 선을 잡은 뒤(회전·출발) 따라가기 상태를 처음부터
-void followReset() { followSide = -9; followSince = millis(); lineSeenAt = millis(); lastFollowAt = 0; allBlackSince = 0; counterUntil = 0; recoverDir = 0; }
+void followReset() { followSide = -9; followSince = millis(); lineSeenAt = millis(); lastFollowAt = 0; allBlackSince = 0; counterUntil = 0; recoverDir = 0; rearLSince = rearRSince = 0; frontLSeenMove = frontRSeenMove = 0; }
 // 좌우 센서가 JUNCTION_MS 이상 선을 보면 교차로 (allowed 가 false 거나 회전 직후면 무시)
 bool junctionSeen(bool allowed) {
   unsigned long now = millis();

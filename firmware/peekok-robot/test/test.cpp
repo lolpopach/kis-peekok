@@ -267,8 +267,15 @@ int main(int argc, char** argv) {
   printf("== 선 되찾기: 뒤 센서는 방향만, 다시 잡는 건 앞 센서 ==\n");
   fake_pins[PIN_FRONT_LEFT] = LOW; fake_pins[PIN_FRONT_RIGHT] = LOW;
   followReset();
-  fake_analog = 1000;                           // 앞 둘 다 놓침 + 뒤 오른쪽이 선을 봄
+  fake_analog = 1000; fake_millis += 10; lineFollow(SPEED_PWM, true); fake_millis += RECOVER_CONFIRM_MS; lineFollow(SPEED_PWM, true);
+  CHECK(recoverDir == 0, "앞 센서가 선을 가운데 두고 있을 때 뒤 센서만 선을 보면 꺾지 않음");
+  fake_analog = 0; followReset();
+  fake_pins[PIN_FRONT_RIGHT] = HIGH; fake_millis += 10; lineFollow(SPEED_PWM, true);   // 앞 오른쪽이 선을 보고 바로잡던 중
+  fake_pins[PIN_FRONT_RIGHT] = LOW;
+  fake_analog = 1000;                           // 선이 앞 오른쪽 바깥으로 빠져 뒤 오른쪽이 봄
   fake_millis += 10; lineFollow(SPEED_PWM, true);
+  CHECK(recoverDir == 0, "뒤 센서가 막 봤을 땐 아직 (잡음 거르기)");
+  fake_millis += RECOVER_CONFIRM_MS; lineFollow(SPEED_PWM, true);
   CHECK(recoverDir == 1 && lastLeftPwm > lastRightPwm, "뒤 오른쪽 쪽으로 크게 꺾기 시작");
   fake_analog = 0;                              // 뒤 센서가 선을 벗어남
   fake_millis += 10; lineFollow(SPEED_PWM, true);
@@ -322,12 +329,13 @@ int main(int argc, char** argv) {
   printf("== 느리게 달리기 (끊어 가기) ==\n");
   speedDuty = 30; fake_millis = 1000000; moveLastAt = 0;
   { unsigned long m0 = moveMs; int on = 0;
-    for (int i = 0; i < 300; i++) { fake_millis += 1; driveP(500, 500); if (fake_pwm[PIN_LEFT_A] > 0) on++; }
-    CHECK(on >= 80 && on <= 100, "150ms 주기 중 약 30% 만 바퀴를 돌림");
-    CHECK(moveMs - m0 >= 80 && moveMs - m0 <= 100, "움직인 시간(moveMs)은 돌린 시간만 셈");
+    int n = 2 * PULSE_MS, want = n * 30 / 100;
+    for (int i = 0; i < n; i++) { fake_millis += 1; driveP(500, 500); if (fake_pwm[PIN_LEFT_A] > 0) on++; }
+    CHECK(on >= want - 10 && on <= want + 10, "PULSE_MS 주기 중 약 30% 만 바퀴를 돌림");
+    CHECK((int)(moveMs - m0) >= want - 10 && (int)(moveMs - m0) <= want + 10, "움직인 시간(moveMs)은 돌린 시간만 셈");
     CHECK(lastLeftPwm == 500, "멈춘 동안에도 기록은 정한 세기"); }
   { unsigned long m0 = moveMs, t0 = fake_millis; forwardFor(200);
-    CHECK(moveMs - m0 >= 200 && fake_millis - t0 >= 600, "회전 전 전진 200ms = 돌린 시간 200ms (실제로는 약 3배 걸림)"); }
+    CHECK(moveMs - m0 >= 200 && fake_millis - t0 >= 450, "회전 전 전진 200ms = 돌린 시간 200ms (실제로는 2~3배 걸림)"); }
   speedDuty = 100;
 
   printf("== WiFi 이름 비교 (iPhone ’ 따옴표·대소문자·띄어쓰기) ==\n");
