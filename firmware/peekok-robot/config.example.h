@@ -107,11 +107,11 @@
 #define JUNCTION_GATE    0.45   // 다음 노드까지 예상 시간의 이 비율이 지나기 전 교차로 신호는 무시 (서버 주행만)
 #define TURN_FORWARD_MS  0      // 교차로 감지 뒤 바퀴 축이 교차점에 오도록 더 가는 시간 (처음 값 — 시리얼 , . 로 ±20ms, 보드에 기억)
 #define CROSS_CLEAR_MS   250    // 교차로를 곧장 지날 때 핸들을 고정하고 가는 시간
-#define UTURN_PWM        (PWM_MAX * 100 / 255)   // 제자리 유턴 세기 — 두 바퀴가 다 도니 낮게 (돌다 멈추면 올리기)
-#define SPIN_KICK_PWM    (PWM_MAX * 150 / 255)   // 유턴 출발 세기 (1초마다 다시 밀어 줌)
-#define SPIN_KICK_MS     120    // 출발 세기 유지 시간(ms)
+#define UTURN_PWM        (PWM_MAX * 92 / 255)  // 제자리 유턴 세기 — 두 바퀴가 다 도니 낮게 (돌다 멈추면 올리기)
+#define SPIN_KICK_PWM    (PWM_MAX * 140 / 255) // 유턴 출발 세기 (1초마다 다시 밀어 줌)
+#define SPIN_KICK_MS     100    // 출발 세기 유지 시간(ms)
 #define SPIN_BRAKE_MS    50     // 유턴 멈출 때 반대로 살짝 돌리는 시간(ms)
-#define UTURN_IGNORE_MS  1200   // 유턴 처음 이 시간(바퀴 돌린 시간)은 T자 가로선 무시 — 덜 돌고 서면 늘리고, 왔던 선을 지나치면 줄이기
+#define UTURN_IGNORE_MS  700   // 유턴 처음 이 시간(바퀴 돌린 시간)은 T자 가로선 무시 — 덜 돌고 서면 늘리고, 왔던 선을 지나치면 줄이기
 #define UTURN_DIR        'L'    // 유턴 방향
 #define TURN_PAUSE_MS    1000   // 분기를 알아보면 이만큼 멈춘 뒤 회전
 #define ARC_PWM          (PWM_MAX * 100 / 255)   // 앞으로 가며 돌 때 바깥 바퀴 세기 (우회전이면 왼쪽 바퀴)

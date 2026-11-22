@@ -191,6 +191,40 @@
 #define TEST_ROUTE "RURLE"
 #endif
 
+
+// ───────── 시리얼로 바꾸는 설정 (P이름=값, 보드에 기억) ─────────
+int P_JUNCTION_MS = JUNCTION_MS;
+int P_DECIDE_MS = DECIDE_MS;
+int P_ARC_PWM = ARC_PWM;
+int P_TURN_PAUSE_MS = TURN_PAUSE_MS;
+int P_UTURN_PWM = UTURN_PWM;
+int P_SPIN_KICK_PWM = SPIN_KICK_PWM;
+int P_SPIN_KICK_MS = SPIN_KICK_MS;
+int P_SPIN_BRAKE_MS = SPIN_BRAKE_MS;
+int P_UTURN_IGNORE_MS = UTURN_IGNORE_MS;
+int P_MIN_PWM = MIN_PWM;
+#undef JUNCTION_MS
+#define JUNCTION_MS P_JUNCTION_MS
+#undef DECIDE_MS
+#define DECIDE_MS P_DECIDE_MS
+#undef ARC_PWM
+#define ARC_PWM P_ARC_PWM
+#undef TURN_PAUSE_MS
+#define TURN_PAUSE_MS P_TURN_PAUSE_MS
+#undef UTURN_PWM
+#define UTURN_PWM P_UTURN_PWM
+#undef SPIN_KICK_PWM
+#define SPIN_KICK_PWM P_SPIN_KICK_PWM
+#undef SPIN_KICK_MS
+#define SPIN_KICK_MS P_SPIN_KICK_MS
+#undef SPIN_BRAKE_MS
+#define SPIN_BRAKE_MS P_SPIN_BRAKE_MS
+#undef UTURN_IGNORE_MS
+#define UTURN_IGNORE_MS P_UTURN_IGNORE_MS
+#undef MIN_PWM
+#define MIN_PWM P_MIN_PWM
+void paramCommand(const char* line);
+
 // ───────── 주행 계획 ─────────
 const int MAX_NODES = 64;
 struct Node {
@@ -244,6 +278,8 @@ struct Flicker { bool last; unsigned long t[4]; int i; bool noisy; };
 Flicker flkL = {false, {0, 0, 0, 0}, 0, false}, flkR = {false, {0, 0, 0, 0}, 0, false};
 bool junctionL = false, junctionR = false;
 unsigned long decideStart = 0;   // 분기/T자 결정 대기 시작 (moveMs+1, 0 = 대기 아님)
+unsigned long candMove = 0;      // 후보가 처음 잡힌 때의 moveMs (결정까지 더 간 만큼 뒤로 물러나려고)
+unsigned long junctionOvershootMs = 0;   // 결정하는 동안 지나쳐 간 시간(바퀴 돌린 시간)
 bool autoAfterU = false;         // 자동: 방금 유턴했으면 다음 T자는 본선
 char autoLastTurn = 'R';         // 자동: 마지막으로 들어간 분기 쪽   // 이번 교차로에서 선을 본 옆 센서
 bool junctionArmed = true;       // 회전 뒤에는 옆 센서가 방금 지난 선(제자리 회전이라 옆 센서 밑에 남음)을 벗어나 바닥을 본 뒤에야 다시 교차로를 셈
@@ -562,7 +598,7 @@ bool junctionSeen(bool allowed) {
   // ① 후보: 뒤 센서 한쪽이 JUNCTION_MS 넘게 계속 선을 봄
   if (!decideStart) {
     if (!(l || r)) { junctionSince = 0; return false; }
-    if (!junctionSince) junctionSince = now;
+    if (!junctionSince) { junctionSince = now; candMove = moveMs; }
     if (now - junctionSince < (unsigned long)JUNCTION_MS) return false;
     decideStart = moveMs + 1;
     junctionL = l; junctionR = r;
@@ -571,7 +607,8 @@ bool junctionSeen(bool allowed) {
   junctionL = junctionL || l; junctionR = junctionR || r;
   if (moveMs + 1 - decideStart < (unsigned long)DECIDE_MS) return false;
   // ③ 결정: 양쪽 → T자, 한쪽 → 그쪽 분기
-  Out.printf("[판단] %s\n", junctionL && junctionR ? "뒤 센서 양쪽 → T자" : junctionL ? "뒤 왼쪽만 → 왼쪽 분기" : "뒤 오른쪽만 → 오른쪽 분기");
+  junctionOvershootMs = moveMs - candMove;
+  Out.printf("[판단] %s (판단하며 %lums 더 감 → 그만큼 물러남)\n", junctionL && junctionR ? "뒤 센서 양쪽 → T자" : junctionL ? "뒤 왼쪽만 → 왼쪽 분기" : "뒤 오른쪽만 → 오른쪽 분기", junctionOvershootMs);
   decideStart = 0; junctionSince = 0;
   return true;
 }
@@ -777,18 +814,30 @@ void forwardFor(unsigned long ms) {
   while (!Abort::poll() && moveMs - m0 < ms && millis() - t0 < ms * 12UL + 1000) { driveP(speedPwm, speedPwm); yield(); }
   stopMotors();
 }
+// 분기/T자를 판단하느라 지나쳐 간 만큼 똑같은 세기로 뒤로 물러나 분기 위치로 돌아옴
+void backtrack() {
+  unsigned long ms = junctionOvershootMs;
+  junctionOvershootMs = 0;
+  if (!ms) return;
+  unsigned long m0 = moveMs, t0 = millis();
+  moveLastAt = 0;
+  while (!Abort::poll() && moveMs - m0 < ms && millis() - t0 < ms * 12UL + 1000) { driveP(-speedPwm, -speedPwm); yield(); }
+  stopMotors();
+}
 // 회전 동작 t('S' 직진 · 'L' 좌 · 'R' 우 · 'U' 유턴)을 하고 지금 방향을 want 로 바꾼다
 bool doTurn(char t, char want, bool atJunction) {
   bool ok = true;
   if (t == 'S') { if (atJunction) forwardFor(CROSS_CLEAR_MS); }
   else if (t == 'L' || t == 'R') {
     stopMotors();
+    if (atJunction) backtrack();
     if (atJunction) { Out.printf("[회전] %s 분기 — %d초 멈춘 뒤 돌아요\n", t == 'L' ? "왼쪽" : "오른쪽", TURN_PAUSE_MS / 1000); delay(TURN_PAUSE_MS); }
     if (turnForwardMs > 0) forwardFor(turnForwardMs);
     ok = arcToLine(t == 'L' ? -1 : 1);
   }
   else if (t == 'U') {
     stopMotors();
+    if (atJunction) backtrack();
     if (atJunction) { Out.printf("[유턴] T자 — %d초 멈춘 뒤 제자리에서 돌아요\n", TURN_PAUSE_MS / 1000); delay(TURN_PAUSE_MS); }
     ok = spinUturn(UTURN_DIR == 'R' ? 1 : -1, UTURN_IGNORE_MS);
   }
@@ -1104,6 +1153,18 @@ void serialCommands() {
   } else if (ch == 't') {
     if (state == ST_FOLLOW || state == ST_ELEVATOR) { Out.println("서버 주행 중이라 시험할 수 없어요 (x 로 멈춘 뒤)"); return; }
     traceStart();
+  } else if (ch == 'P') {         // P = 설정 목록 · P이름=값 = 바꾸고 기억 · P reset
+    char buf[48]; int n = 0; unsigned long t0 = millis();
+    while (millis() - t0 < 500) {
+      if (In::available()) {
+        char c = In::read(); t0 = millis();
+        if (c == '\n' || c == '\r') break;
+        if (c != ' ' && n < (int)sizeof(buf) - 1) buf[n++] = c;
+      }
+      yield();
+    }
+    buf[n] = 0;
+    paramCommand(buf);
   } else if (ch == 'h') {
     if (state == ST_FOLLOW || state == ST_ELEVATOR) { Out.println("서버 주행 중이라 시험할 수 없어요 (x 로 멈춘 뒤)"); return; }
     testRoute = "!";   // 분기를 알아보면 멈춤
@@ -1238,6 +1299,63 @@ int wifiFails = 0;
 int shownReason = -1;
 void wifiTick();
 
+struct Param { const char* key; int* v; int lo, hi; const char* help; };
+Param params[] = {
+  {"speed", &speedPwm, 0, 255, "직진 세기"},
+  {"duty", &speedDuty, 10, 100, "직진 바퀴 돌리는 비율(%)"},
+  {"juncMs", &P_JUNCTION_MS, 0, 1000, "분기 후보: 뒤 센서가 계속 봐야 하는 시간(ms)"},
+  {"decideMs", &P_DECIDE_MS, 0, 2000, "분기/T자 결정: 반대쪽 뒤 센서를 기다리는 시간(ms)"},
+  {"arcPwm", &P_ARC_PWM, 0, 255, "분기 회전(앞으로 가며 돌기) 바깥 바퀴 세기"},
+  {"turnPause", &P_TURN_PAUSE_MS, 0, 5000, "분기·T자에서 멈추는 시간(ms)"},
+  {"uPwm", &P_UTURN_PWM, 0, 255, "제자리 유턴 세기 (두 바퀴 반대로)"},
+  {"kickPwm", &P_SPIN_KICK_PWM, 0, 255, "유턴 출발 세기 (1초마다 다시)"},
+  {"kickMs", &P_SPIN_KICK_MS, 0, 1000, "유턴 출발 세기 시간(ms)"},
+  {"brakeMs", &P_SPIN_BRAKE_MS, 0, 300, "유턴 멈출 때 반대로 돌리는 시간(ms)"},
+  {"uIgnore", &P_UTURN_IGNORE_MS, 0, 5000, "유턴 처음 선 무시 시간(ms) — 덜 돌고 서면 늘리기, 지나치면 줄이기"},
+  {"minPwm", &P_MIN_PWM, 0, 255, "바퀴가 도는 최소 세기"},
+};
+const int PARAM_COUNT = sizeof(params) / sizeof(params[0]);
+void paramsLoad() {
+#if defined(ESP32)
+  Preferences p;
+  if (!p.begin("peekokp2", true)) return;
+  for (int i = 0; i < PARAM_COUNT; i++) if (p.isKey(params[i].key)) *params[i].v = constrain((int)p.getInt(params[i].key, *params[i].v), params[i].lo, params[i].hi);
+  p.end();
+#endif
+}
+void paramSave(int i) {
+#if defined(ESP32)
+  Preferences p;
+  if (p.begin("peekokp2", false)) { p.putInt(params[i].key, *params[i].v); p.end(); }
+#endif
+}
+void paramCommand(const char* line) {
+  if (!line[0]) {
+    Out.println("[설정] 이름=값 (범위) 설명 — 바꾸려면 P이름=값 · 처음 값으로 P reset");
+    for (int i = 0; i < PARAM_COUNT; i++) Out.printf("  %-10s = %-6d (%d~%d) %s\n", params[i].key, *params[i].v, params[i].lo, params[i].hi, params[i].help);
+    return;
+  }
+  if (!strcmp(line, "reset")) {
+#if defined(ESP32)
+    Preferences p; if (p.begin("peekokp2", false)) { p.clear(); p.end(); }
+#endif
+    Out.println("[설정] 기억한 값을 지웠어요 — 다시 켜면 config.h 처음 값");
+    return;
+  }
+  const char* eq = strchr(line, '=');
+  if (!eq) { Out.printf("[설정] '%s' — P이름=값 형식으로\n", line); return; }
+  for (int i = 0; i < PARAM_COUNT; i++) {
+    if ((int)strlen(params[i].key) == eq - line && !strncmp(line, params[i].key, eq - line)) {
+      int v = constrain(atoi(eq + 1), params[i].lo, params[i].hi);
+      *params[i].v = v;
+      paramSave(i);
+      Out.printf("[설정] %s = %d 저장 (%s)\n", params[i].key, v, params[i].help);
+      return;
+    }
+  }
+  Out.printf("[설정] 이름을 모르겠어요: %.*s — P 만 보내면 목록\n", (int)(eq - line), line);
+}
+
 int sensorPinMode(int pin) {
 #if defined(ESP32)
   return (pin >= 34 && pin <= 39) ? INPUT : INPUT_PULLUP;
@@ -1273,6 +1391,7 @@ void setup() {
   stopMotors();
 #endif
   trimLoad();
+  paramsLoad();
   Out.printf("모터 보정 %+.3f (왼쪽 x%.2f · 오른쪽 x%.2f) · 세기 %d · 끊어 가기 %d%% · PWM %dHz\n", motorTrim, 1 + motorTrim, 1 - motorTrim, speedPwm, speedDuty, (int)PWM_FREQ);
 
 #if defined(ESP32)
