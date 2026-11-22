@@ -680,6 +680,7 @@ bool arcToLine(int dir, unsigned long ignoreMs = 0) {
   bool leadSeen = false;
   while (moveMs - m0 < ARC_TIMEOUT_MS + ignoreMs && millis() - t0 < (ARC_TIMEOUT_MS + ignoreMs) * 12UL) {
     driveP(dir > 0 ? ARC_PWM : ARC_INNER_PWM, dir > 0 ? ARC_INNER_PWM : ARC_PWM);
+    logDrive(dir > 0 ? "우회전" : "좌회전");
     bool lead = dir > 0 ? sFrontR() : sFrontL();
     bool trail = dir > 0 ? sFrontL() : sFrontR();
     if (moveMs - m0 < ignoreMs) { yield(); continue; }
