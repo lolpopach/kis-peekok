@@ -142,6 +142,9 @@
 #ifndef UTURN_BACK_MS
 #define UTURN_BACK_MS 300
 #endif
+#ifndef UTURN_PWM
+#define UTURN_PWM (PWM_MAX * 150 / 255)
+#endif
 #ifndef UTURN_DIR
 #define UTURN_DIR 'L'
 #endif
@@ -210,6 +213,7 @@ int P_BACK_EXTRA_MS = BACK_EXTRA_MS;
 int P_LIFT_MS = LIFT_MS;
 int P_FLICKER_MS = FLICKER_MS;
 int P_TEST_GIVEUP_MS = TEST_GIVEUP_MS;
+int P_UTURN_PWM = UTURN_PWM;
 #undef STEER_MIN
 #define STEER_MIN P_STEER_MIN
 #undef STEER_MAX
@@ -246,6 +250,8 @@ int P_TEST_GIVEUP_MS = TEST_GIVEUP_MS;
 #define FLICKER_MS P_FLICKER_MS
 #undef TEST_GIVEUP_MS
 #define TEST_GIVEUP_MS P_TEST_GIVEUP_MS
+#undef UTURN_PWM
+#define UTURN_PWM P_UTURN_PWM
 
 void paramCommand(const char* line);
 
@@ -759,6 +765,35 @@ bool arcToLine(int dir, unsigned long ignoreMs = 0) {
   stopMotors();
   return leadSeen;               // 새 선에 닿기라도 했으면 이어서 따라가 봄
 }
+// 제자리 유턴: 두 바퀴를 반대로(끊지 않고 UTURN_PWM) 돌려 그 자리에서 돈다.
+// 처음 ignoreMs 동안은 선을 무시(T자 가로선) → 도는 쪽 앞 센서가 왔던 선에 닿고 지나가면, 반대쪽 앞 센서가 닿거나 ARC_SETTLE_MS 뒤 멈춤
+bool spinUturn(int dir, unsigned long ignoreMs) {
+  int savedDuty = speedDuty;
+  speedDuty = 100;
+  unsigned long m0 = moveMs, t0 = millis();
+  moveLastAt = 0;
+  bool leadSeen = false;
+  unsigned long passedAt = 0;
+  bool ok = false;
+  while (moveMs - m0 < ARC_TIMEOUT_MS + ignoreMs && millis() - t0 < (ARC_TIMEOUT_MS + ignoreMs) * 3UL) {
+    driveP(dir * UTURN_PWM, -dir * UTURN_PWM);
+    logDrive("유턴");
+    bool lead = dir > 0 ? sFrontR() : sFrontL();
+    bool trail = dir > 0 ? sFrontL() : sFrontR();
+    if (moveMs - m0 < ignoreMs) { yield(); continue; }
+    if (!leadSeen) { if (lead) { leadSeen = true; Serial.printf("[유턴] 앞 %s 센서가 선에 닿음\n", dir > 0 ? "오른쪽" : "왼쪽"); } }
+    else if (trail) { ok = true; Serial.printf("[유턴] 앞 %s 센서도 닿음\n", dir > 0 ? "왼쪽" : "오른쪽"); break; }
+    else if (!lead) {
+      if (!passedAt) passedAt = moveMs + 1;
+      if (moveMs + 1 - passedAt >= ARC_SETTLE_MS) { ok = true; Serial.println("[유턴] 선이 앞 센서 사이에 들어옴"); break; }
+    }
+    yield();
+  }
+  stopMotors();
+  speedDuty = savedDuty;
+  delay(100);
+  return ok || leadSeen;
+}
 // 핸들을 고정하고 곧장 ms 동안 (교차로 통과·바퀴 축 맞추기)
 // ms 는 바퀴를 실제로 돌린 시간 기준 (끊어 가기로 느려도 같은 거리)
 void forwardFor(unsigned long ms) {
@@ -957,7 +992,7 @@ void testEvent() {
       stopMotors(); speedDuty = savedDuty; delay(150);
     }
     int dir = UTURN_DIR == 'R' ? 1 : -1;
-    bool ok = arcToLine(dir, uturnIgnoreMs);
+    bool ok = spinUturn(dir, uturnIgnoreMs);
     Serial.printf("[코스] 유턴 %s\n", ok ? "완료 → 앞으로 본선까지" : "— 선을 못 찾음");
     if (!ok) { testFinish("유턴하다 선을 못 찾았어요"); return; }
     junctionArmed = false; sideClearSince = 0; junctionSince = 0;
@@ -1339,6 +1374,7 @@ Param params[] = {
   {"tfwd", &turnForwardMs, 0, 1500, "회전 전 전진(ms)"},
   {"uign", &uturnIgnoreMs, 0, 5000, "유턴: 처음 선 무시(ms)"},
   {"uback", &uturnBackMs, 0, 3000, "유턴 전 뒤로(ms)"},
+  {"uPwm", &P_UTURN_PWM, 0, 255, "제자리 유턴 세기 (두 바퀴 반대로)"},
   {"steerMin", &P_STEER_MIN, 0, 255, "꺾기 시작 세기"},
   {"steerMax", &P_STEER_MAX, 0, 400, "꺾기 최대 세기"},
   {"steerRamp", &P_STEER_RAMP_MS, 50, 3000, "꺾기 세지는 시간(ms)"},
