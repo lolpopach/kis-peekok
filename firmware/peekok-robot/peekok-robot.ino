@@ -820,24 +820,23 @@ bool spinUturn(int dir, unsigned long ignoreMs) {
   unsigned long passedAt = 0;
   bool ok = false;
   while (moveMs - m0 < ARC_TIMEOUT_MS + ignoreMs && millis() - t0 < (ARC_TIMEOUT_MS + ignoreMs) * 3UL) {
-    int pwm = (millis() - t0 < (unsigned long)SPIN_KICK_MS) ? SPIN_KICK_PWM : UTURN_PWM;
+    // 처음과 그 뒤 1초마다 SPIN_KICK_MS 만 세게 밀어 줌 → 힘이 빠져 멈추지 않고 선을 찾을 때까지 계속 돎
+    int pwm = ((millis() - t0) % 1000UL < (unsigned long)SPIN_KICK_MS) ? SPIN_KICK_PWM : UTURN_PWM;
     driveP(dir * pwm, -dir * pwm);
     logDrive("제자리");
     bool lead = dir > 0 ? sFrontR() : sFrontL();
     bool trail = dir > 0 ? sFrontL() : sFrontR();
     if (moveMs - m0 < ignoreMs) { yield(); continue; }
+    // 우회전: 앞 오른쪽이 새 선에 닿고 → 지나간 뒤 → 앞 왼쪽이 닿아야만 멈춤 (중간에 멈추지 않음)
     if (!leadSeen) { if (lead) { leadSeen = true; Serial.printf("[제자리] 앞 %s 센서가 선에 닿음\n", dir > 0 ? "오른쪽" : "왼쪽"); } }
-    else if (trail && passedAt) { ok = true; Serial.printf("[제자리] 앞 %s 센서도 닿음\n", dir > 0 ? "왼쪽" : "오른쪽"); break; }
-    else if (!lead) {
-      if (!passedAt) passedAt = moveMs + 1;
-      if (moveMs + 1 - passedAt >= ARC_SETTLE_MS) { ok = true; Serial.println("[제자리] 선이 앞 센서 사이에 들어옴"); break; }
-    }
+    else if (!lead && !passedAt) passedAt = moveMs + 1;
+    else if (trail && passedAt) { ok = true; Serial.printf("[제자리] 앞 %s 센서도 닿음 → 멈춤\n", dir > 0 ? "왼쪽" : "오른쪽"); break; }
     yield();
   }
-  if (ok || leadSeen) spinBrake(dir); else stopMotors();
+  if (ok) spinBrake(dir); else { stopMotors(); Serial.println("[제자리] 반대쪽 앞 센서가 끝내 선에 안 닿음 → 멈춤"); }
   speedDuty = savedDuty;
   delay(100);
-  return ok || leadSeen;
+  return ok;                     // 앞 두 센서가 차례로 닿았을 때만 성공 (아니면 엉뚱한 길로 직진하지 않게 멈춤)
 }
 // 핸들을 고정하고 곧장 ms 동안 (교차로 통과·바퀴 축 맞추기)
 // ms 는 바퀴를 실제로 돌린 시간 기준 (끊어 가기로 느려도 같은 거리)
