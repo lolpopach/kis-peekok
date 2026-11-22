@@ -156,7 +156,7 @@ int main(int argc, char** argv) {
   for (int i = 0; i < 20; i++) { fake_millis += 10; lineFollow(SPEED_PWM); }
   float afterShort = motorTrim;
   CHECK(afterShort < 0 && afterShort > -0.01f, "짧은 바로잡기(왼쪽 센서) → 보정을 조금 줄임 (왼쪽을 약하게)");
-  for (int i = 0; i < 20; i++) { fake_millis += 10; lineFollow(SPEED_PWM); }   // STEER_RAMP_MS(300ms) 를 넘김
+  for (int i = 0; i < STEER_RAMP_MS / 10; i++) { fake_millis += 10; lineFollow(SPEED_PWM); }   // STEER_RAMP_MS 를 넘김
   float atRamp = motorTrim;
   for (int i = 0; i < 100; i++) { fake_millis += 10; lineFollow(SPEED_PWM); }
   CHECK(motorTrim == atRamp, "꺾기가 STEER_RAMP_MS 넘게 이어지면(곡선) 배우지 않음");
@@ -165,6 +165,18 @@ int main(int argc, char** argv) {
   for (int i = 0; i < 20; i++) { fake_millis += 10; lineFollow(SPEED_PWM); }
   CHECK(motorTrim > before, "오른쪽 센서로 바로잡으면 반대로 (왼쪽을 세게)");
   fake_pins[PIN_FRONT_RIGHT] = LOW;
+  setTrim(0);
+
+  printf("== 흔들림 줄이기: 바로잡기 끝나면 반대로 살짝 ==\n");
+  fake_pins[PIN_FRONT_LEFT] = LOW; fake_pins[PIN_FRONT_RIGHT] = LOW;
+  followReset(); lineFollow(SPEED_PWM);
+  fake_pins[PIN_FRONT_RIGHT] = HIGH;
+  for (int i = 0; i < 20; i++) { fake_millis += 10; lineFollow(SPEED_PWM); }  // 0.2초 오른쪽으로 바로잡기
+  fake_pins[PIN_FRONT_RIGHT] = LOW;
+  fake_millis += 10; lineFollow(SPEED_PWM);
+  CHECK(lastLeftPwm < lastRightPwm && lastRightPwm - lastLeftPwm == 2 * STEER_MIN, "선이 가운데로 돌아오면 → 왼쪽으로 살짝 (반대로)");
+  fake_millis += (unsigned long)(200 * COUNTER_RATIO) + 20; lineFollow(SPEED_PWM);
+  CHECK(lastLeftPwm == lastRightPwm, "바로잡은 시간 x COUNTER_RATIO 가 지나면 곧장");
   setTrim(0);
 
   printf("== 교차로: 옆 센서 ==\n");

@@ -100,6 +100,12 @@
 #ifndef TRIM_MAX
 #define TRIM_MAX 0.30
 #endif
+#ifndef COUNTER_RATIO
+#define COUNTER_RATIO 0.5
+#endif
+#ifndef COUNTER_MAX_MS
+#define COUNTER_MAX_MS 150
+#endif
 #ifndef PWM_FREQ
 #define PWM_FREQ 1000
 #endif
@@ -162,6 +168,8 @@ float savedTrim = MOTOR_TRIM;
 float trimBoost = 1.0;        // 'b' 보정 주행 중에는 더 빨리 배움
 int speedPwm = SPEED_PWM;     // 선 따라갈 때 기본 세기 — 시리얼 + / - 로 바꾸고 보드에 기억
 unsigned long allBlackSince = 0;
+int counterSide = 0;          // 바로잡기가 끝난 직후 반대로 살짝 꺾는 쪽 (흔들림 줄이기)
+unsigned long counterUntil = 0;
 unsigned long lastFollowAt = 0;
 // 장애물
 bool blocked = false;
@@ -309,7 +317,17 @@ void lineFollow(int base, bool sideRecover = false) {
   lastFollowAt = now;
   bool fl = sFrontL(), fr = sFrontR();
   int side = (fl && fr) ? 2 : fl ? -1 : fr ? 1 : 0;
-  if (side != followSide) { followSide = side; followSince = now; }
+  if (side != followSide) {
+    // 한쪽 바로잡기가 끝나 선이 가운데로 돌아옴 → 몸은 아직 비스듬하니, 바로잡은 시간에 비례해 반대로 살짝 꺾어 똑바로 세움
+    if ((followSide == -1 || followSide == 1) && side == 0) {
+      unsigned long hold = (unsigned long)((now - followSince) * COUNTER_RATIO);
+      counterSide = -followSide;
+      counterUntil = now + (hold > COUNTER_MAX_MS ? COUNTER_MAX_MS : hold);
+    } else {
+      counterUntil = 0;
+    }
+    followSide = side; followSince = now;
+  }
   if (fl || fr) lineSeenAt = now;
   // 앞 두 센서가 다 놓쳤는데 옆 센서 하나가 선을 봄 = 선이 크게 벗어남 → 그쪽으로 크게 꺾어 되찾기 (선 시험·속도 재기에서만;
   // 서버 주행·코스 시험에서는 옆 센서가 교차로 신호라서 쓰지 않음)
@@ -318,6 +336,7 @@ void lineFollow(int base, bool sideRecover = false) {
     drive(base + d * STEER_MAX, base - d * STEER_MAX);
     return;
   }
+  if (side == 0 && (long)(now - counterUntil) < 0) { drive(base + counterSide * STEER_MIN, base - counterSide * STEER_MIN); return; }
   if (side == 0 || side == 2) { drive(base, base); return; }   // 선이 사이에 있음 · 앞에 가로선 → 곧장
   // 한쪽이 검정 = 선이 그쪽으로 치우침 → 그쪽으로 꺾기. 오래 이어질수록 세게(STEER_RAMP_MS 에 STEER_MAX = 제자리 회전에 가깝게)
   unsigned long t = now - followSince;
@@ -335,7 +354,7 @@ bool liftedNow() {
   return millis() - allBlackSince >= LIFT_MS;
 }
 // 새로 선을 잡은 뒤(회전·출발) 따라가기 상태를 처음부터
-void followReset() { followSide = -9; followSince = millis(); lineSeenAt = millis(); lastFollowAt = 0; allBlackSince = 0; }
+void followReset() { followSide = -9; followSince = millis(); lineSeenAt = millis(); lastFollowAt = 0; allBlackSince = 0; counterUntil = 0; }
 // 좌우 센서가 JUNCTION_MS 이상 선을 보면 교차로 (allowed 가 false 거나 회전 직후면 무시)
 bool junctionSeen(bool allowed) {
   unsigned long now = millis();
