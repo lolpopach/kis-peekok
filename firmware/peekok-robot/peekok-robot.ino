@@ -764,20 +764,49 @@ bool spinToLine(int dir, unsigned long minMs) {
 }
 // 앞으로 가면서 도는 회전 (제자리 회전은 모터가 잘 못 함): 우회전이면 왼쪽 바퀴만 앞으로, 오른쪽 바퀴는 ARC_INNER_PWM.
 // 도는 쪽 앞 센서(우회전이면 앞 오른쪽)가 새 선에 닿고 → 이어서 반대쪽 앞 센서(앞 왼쪽)가 닿으면 직진 구간으로 보고 멈춤.
+void settleBack(int dir);
 bool arcToLine(int dir) {
   unsigned long m0 = moveMs, t0 = millis();
   moveLastAt = 0;
   bool leadSeen = false;
+  unsigned long passedAt = 0;
   while (!Abort::poll() && moveMs - m0 < ARC_TIMEOUT_MS && millis() - t0 < ARC_TIMEOUT_MS * 12UL) {
     driveP(dir > 0 ? ARC_PWM : ARC_INNER_PWM, dir > 0 ? ARC_INNER_PWM : ARC_PWM);
+    logDrive(dir > 0 ? "우회전" : "좌회전");
     bool lead = dir > 0 ? sFrontR() : sFrontL();
     bool trail = dir > 0 ? sFrontL() : sFrontR();
+    // 도는 쪽 앞 센서가 새 선에 닿고 → 지나간 뒤 → 반대쪽 앞 센서가 감지하는 순간 멈추고 살짝 되돌기
     if (!leadSeen) { if (lead) { leadSeen = true; Out.printf("[회전] 앞 %s 센서가 새 선에 닿음\n", dir > 0 ? "오른쪽" : "왼쪽"); } }
-    else if (trail) { stopMotors(); Out.printf("[회전] 앞 %s 센서도 닿음 → 직진 구간\n", dir > 0 ? "왼쪽" : "오른쪽"); delay(80); return true; }
+    else if (!lead && !passedAt) passedAt = moveMs + 1;
+    else if (trail && passedAt) {
+      stopMotors();
+      Out.printf("[회전] 앞 %s 센서도 감지 → 반대로 살짝\n", dir > 0 ? "왼쪽" : "오른쪽");
+      settleBack(dir);
+      return true;
+    }
     yield();
   }
   stopMotors();
   return leadSeen;               // 새 선에 닿기라도 했으면 이어서 따라가 봄
+}
+// 되돌기(회전·유턴 공용): 두 번째 앞 센서가 선을 본 순간 반대로 살짝 돌아, 관성으로 지나쳤으면 다시 찾고
+// 선이 앞 두 센서 사이에 오면 멈춤. dir = 지금까지 돌던 방향 (+1 오른쪽 · -1 왼쪽)
+void settleBack(int dir) {
+  bool savedNd = noDeadzone;
+  noDeadzone = true;
+  int back = -dir;
+  bool sawTrail = false;
+  unsigned long t1 = millis();
+  while (!Abort::poll() && millis() - t1 < 2000) {
+    int pwm = ((millis() - t1) % 1000UL < (unsigned long)SPIN_KICK_MS) ? SPIN_KICK_PWM : UTURN_PWM;
+    drive(back * pwm, -back * pwm);
+    bool trail = dir > 0 ? sFrontL() : sFrontR();
+    if (trail) sawTrail = true;
+    else if (sawTrail) { Out.println("[되돌기] 선이 앞 두 센서 사이에 들어옴 → 직진"); break; }
+    yield();
+  }
+  stopMotors();
+  noDeadzone = savedNd;
 }
 // 제자리 유턴: 두 바퀴를 반대로, 끊지 않고. 두 바퀴가 다 도니 빠르므로 처음만 SPIN_KICK_PWM 으로 밀고(1초마다 다시)
 // 그다음 UTURN_PWM 으로 천천히. 처음 ignoreMs 는 T자 가로선 무시 → 도는 쪽 앞 센서가 왔던 선에 닿고 지나간 뒤
@@ -802,21 +831,7 @@ bool spinUturn(int dir, unsigned long ignoreMs) {
     else if (trail && passedAt) { ok = true; Out.printf("[유턴] 앞 %s 센서도 닿음 → 멈춤\n", dir > 0 ? "왼쪽" : "오른쪽"); break; }
     yield();
   }
-  if (ok) {
-    // 되돌기: 두 번째 앞 센서가 선을 본 순간 반대로 돌아, 관성으로 지나쳤으면 다시 찾아 선이 앞 두 센서 사이에 오면 멈춤
-    // (두 번째 센서가 선 위면 → 벗어날 때까지 · 이미 지나쳐 바닥이면 → 다시 선을 봤다가 벗어날 때까지)
-    int back = -dir;
-    bool sawTrail = false;
-    unsigned long t1 = millis();
-    while (!Abort::poll() && millis() - t1 < 2000) {
-      int pwm = ((millis() - t1) % 1000UL < (unsigned long)SPIN_KICK_MS) ? SPIN_KICK_PWM : UTURN_PWM;
-      drive(back * pwm, -back * pwm);
-      bool trail = dir > 0 ? sFrontL() : sFrontR();
-      if (trail) sawTrail = true;
-      else if (sawTrail) { Out.println("[유턴] 반대로 돌아 선이 앞 센서 사이에 들어옴 → 직진"); break; }
-      yield();
-    }
-  }
+  if (ok) settleBack(dir);
   stopMotors();
   noDeadzone = false;
   speedDuty = savedDuty;
