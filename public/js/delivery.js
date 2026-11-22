@@ -24,11 +24,11 @@ KIS.Delivery = (function () {
     try {
       const m = location.hash.match(/key=([^&]+)/);
       if (m) {
-        localStorage.setItem(KEY_STORE, decodeURIComponent(m[1]));
+        localStorage.setItem(KEY_STORE, decodeURIComponent(m[1]).trim());
         localStorage.setItem(DEVICE_STORE, '1');
         history.replaceState(null, '', location.pathname + location.search);
       }
-      key = localStorage.getItem(KEY_STORE);
+      key = (localStorage.getItem(KEY_STORE) || '').trim() || null;
       if (key) localStorage.setItem(DEVICE_STORE, '1');
     } catch (e) { key = null; }
   }
