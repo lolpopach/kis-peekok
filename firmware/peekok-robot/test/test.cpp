@@ -191,6 +191,7 @@ int main(int argc, char** argv) {
   CHECK(!junctionSeen(true), "앞 센서만 검정이면 아직 교차로 아님 (옆 센서가 볼 때)");
   fake_pins[PIN_FRONT_LEFT] = LOW; fake_pins[PIN_FRONT_RIGHT] = LOW;
   CHECK(!sLeft(), "ESP8266: 왼쪽 옆 센서 없음(-1) → 항상 바닥");
+  fake_pins[PIN_FRONT_RIGHT] = HIGH; junctionSeen(true); fake_pins[PIN_FRONT_RIGHT] = LOW;   // 앞 오른쪽이 먼저 지나감
   fake_analog = 1000;                                  // 오른쪽 옆 센서 검정
   CHECK(!junctionSeen(true), "옆 센서가 막 켜짐 → 아직 (잡음 거르기)");
   fake_millis += JUNCTION_MS;
@@ -258,9 +259,21 @@ int main(int argc, char** argv) {
   fake_analog = 0;
   for (int i = 0; i < 12; i++) { fake_millis += 10; moveMs += 10; junctionSeen(true); }
   CHECK(junctionArmed, "바닥을 0.1초 보면 다시 셀 준비");
+  fake_pins[PIN_FRONT_RIGHT] = HIGH; junctionSeen(true); fake_pins[PIN_FRONT_RIGHT] = LOW;
   fake_analog = 1000; junctionSeen(true); fake_millis += JUNCTION_MS; moveMs += JUNCTION_MS;
   CHECK(junctionSeen(true), "그 다음 선 = 다음 교차로");
   fake_analog = 0;
+
+  printf("== 분기는 앞 → 뒤 순서로 ==\n");
+  junctionArmed = true; junctionIgnoreMove = 0; junctionSince = 0; frontRSeenMove = 0;
+  fake_analog = 1000;                          // 앞 오른쪽이 본 적 없이 뒤 오른쪽만
+  for (int i = 0; i < 10; i++) { fake_millis += 10; moveMs += 10; }
+  CHECK(!junctionSeen(true) && !junctionSeen(true), "뒤 오른쪽만 선을 보면(앞 오른쪽이 안 지나감) 잡음으로 무시");
+  fake_analog = 0;
+  fake_pins[PIN_FRONT_RIGHT] = HIGH; junctionSeen(true); fake_pins[PIN_FRONT_RIGHT] = LOW;
+  moveMs += BRANCH_PAIR_MS + 10; fake_analog = 1000; junctionSeen(true); fake_millis += JUNCTION_MS;
+  CHECK(!junctionSeen(true), "앞 오른쪽을 본 지 너무 오래됐으면 무시");
+  fake_analog = 0; junctionSince = 0;
 
   printf("== 제자리 회전 방향 ==\n");
   fake_pins[PIN_FRONT_LEFT] = LOW; fake_pins[PIN_FRONT_RIGHT] = LOW;

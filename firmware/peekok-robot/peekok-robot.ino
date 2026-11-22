@@ -112,6 +112,9 @@
 #ifndef COUNTER_MAX_MS
 #define COUNTER_MAX_MS 150
 #endif
+#ifndef BRANCH_PAIR_MS
+#define BRANCH_PAIR_MS 1500
+#endif
 #ifndef SPIN_SETTLE_MS
 #define SPIN_SETTLE_MS 600
 #endif
@@ -186,6 +189,7 @@ int turnForwardMs = TURN_FORWARD_MS;   // 교차로 감지 뒤 더 가는 시간
 bool junctionL = false, junctionR = false;   // 이번 교차로에서 선을 본 옆 센서
 bool junctionArmed = true;       // 회전 뒤에는 옆 센서가 방금 지난 선(제자리 회전이라 옆 센서 밑에 남음)을 벗어나 바닥을 본 뒤에야 다시 교차로를 셈
 unsigned long sideClearSince = 0;
+unsigned long frontLSeenMove = 0, frontRSeenMove = 0;   // 앞 왼쪽·오른쪽이 마지막으로 검정을 본 때(움직인 시간) — 분기는 앞 → 뒤 순서로 지나감
 unsigned long lastFollowAt = 0;
 // 장애물
 bool blocked = false;
@@ -398,7 +402,11 @@ void followReset() { followSide = -9; followSince = millis(); lineSeenAt = milli
 // 좌우 센서가 JUNCTION_MS 이상 선을 보면 교차로 (allowed 가 false 거나 회전 직후면 무시)
 bool junctionSeen(bool allowed) {
   unsigned long now = millis();
-  bool l = sLeft(), r = sRight();
+  if (sFrontL()) frontLSeenMove = moveMs + 1;
+  if (sFrontR()) frontRSeenMove = moveMs + 1;
+  // 진짜 분기는 앞 센서가 먼저 지나가고 뒤 센서가 닿음 → 뒤 센서만 깜빡이는 잡음은 무시
+  bool l = sLeft() && frontLSeenMove && moveMs + 1 - frontLSeenMove <= BRANCH_PAIR_MS;
+  bool r = sRight() && frontRSeenMove && moveMs + 1 - frontRSeenMove <= BRANCH_PAIR_MS;
   if (!junctionArmed) {               // 옆 센서 둘 다 바닥을 (움직이며) 0.1초 보면 다시 셀 준비
     if (!l && !r) { if (!sideClearSince) sideClearSince = moveMs + 1; if (moveMs + 1 - sideClearSince >= 100) junctionArmed = true; }
     else sideClearSince = 0;
