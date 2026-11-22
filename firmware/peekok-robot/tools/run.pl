@@ -55,6 +55,7 @@ while (1) {
     if ($h == $f) {
       my $n = sysread($f, my $buf, 4096);
       if (!$n) { print "\n[USB 연결 끊김]\n"; exit 1; }
+      $buf =~ s/^\@m \d+\r?\n//mg;   # 지도용 위치 보고는 숨김
       print $buf;
     } else {
       my $line = <STDIN>;

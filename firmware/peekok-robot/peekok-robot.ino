@@ -187,6 +187,9 @@
 #ifndef UTURN_DIR
 #define UTURN_DIR 'L'
 #endif
+#ifndef ARRIVE_PAUSE_MS
+#define ARRIVE_PAUSE_MS 2000
+#endif
 #ifndef TEST_ROUTE
 #define TEST_ROUTE "RURLE"
 #endif
@@ -256,6 +259,8 @@ unsigned long followSince = 0;// 그 상태가 시작된 시각
 unsigned long testLastEvent = 0;
 unsigned long lastPoll = 0;
 bool verbose = false;         // 'v': 주행 중 센서·바퀴 기록
+bool telemetry = false;       // '@': 지도용 위치 보고 (선 따라가는 동안 0.1초마다 "@m 바퀴 돌린 시간ms")
+unsigned long lastTele = 0;
 unsigned long lastLog = 0;
 int lastLeftPwm = 0, lastRightPwm = 0;   // 보정 전 세기 (기록용)
 // 좌우 모터 힘 보정: + 면 왼쪽 바퀴를 (1+trim) 배·오른쪽을 (1-trim) 배 → 오른쪽으로 쏠리면 줄이고, 왼쪽으로 쏠리면 늘림
@@ -958,6 +963,7 @@ void followStep() {
 // ───────── 코스 시험 (서버 없이, 시리얼 'k') ─────────
 // 표시(양옆 센서가 보는 교차로·분기·선 끝 가로선)를 만날 때마다 TEST_ROUTE 의 다음 글자를 한다.
 const char* testRoute = TEST_ROUTE;
+char routeBuf[64];   // 지도에서 보낸 경로 (G 명령): 교차로마다 S 직진 · L · R · U 유턴 · V 도착 후 유턴 · E 도착·멈춤
 void testStart() {
   routeIdx = 0;
   autoAfterU = false; decideStart = 0;
@@ -1001,7 +1007,12 @@ void testEvent() {
     Out.printf("[분기 시험] %d번째: %s에 선 → %s\n", routeIdx, junctionL && junctionR ? "양쪽" : junctionL ? "왼쪽" : "오른쪽",
                   a == 'E' ? "멈춤" : a == 'L' ? "좌회전" : "우회전");
   } else Out.printf("[코스 시험] %d번째 표시 → %c\n", routeIdx, a);
-  if (a == 'E') { testFinish("정지 (완료)"); return; }
+  if (a == 'E') { Out.println("[도착] 마지막 목적지"); testFinish("정지 (완료)"); return; }
+  if (a == 'V') {    // 중간 목적지: 도착 알리고 잠깐 쉰 뒤 유턴해서 다음 목적지로
+    Out.printf("[도착] 목적지 — %d초 쉬고 유턴해서 다음 목적지로\n", ARRIVE_PAUSE_MS / 1000);
+    delay(ARRIVE_PAUSE_MS);
+    a = 'U';
+  }
   if (!doTurn(a, '-', true)) { testFinish("회전하다 선을 못 찾았어요"); return; }
   if (!testRoute[routeIdx]) testFinish("코스 글자를 다 썼어요");
 }
@@ -1011,6 +1022,7 @@ void testStep() {
   if (liftedNow()) { testFinish("센서가 모두 검정 — 로봇이 들렸어요?"); return; }
   lineFollow(speedPwm);
   logDrive("시험");
+  if (telemetry && millis() - lastTele >= 100) { lastTele = millis(); Out.printf("@m %lu\n", moveMs); }
   if (millis() - testLastEvent > TEST_GIVEUP_MS) testFinish("표시를 너무 오래 못 만났어요");
 }
 
@@ -1186,6 +1198,32 @@ void serialCommands() {
   } else if (ch == 't') {
     if (state == ST_FOLLOW || state == ST_ELEVATOR) { Out.println("서버 주행 중이라 시험할 수 없어요 (x 로 멈춘 뒤)"); return; }
     traceStart();
+  } else if (ch == '@') {         // 지도 프로그램이 붙으면 보냄: 위치 보고 켜기
+    telemetry = true;
+    Out.println("[지도] 위치 보고 켬 (@m)");
+  } else if (ch == 'G') {         // G경로 = 지도에서 계산한 경로로 달리기 (맨 앞 u = 지금 자리에서 먼저 유턴)
+    if (state == ST_FOLLOW || state == ST_ELEVATOR) { Out.println("서버 주행 중이라 시험할 수 없어요 (x 로 멈춘 뒤)"); return; }
+    char buf[64]; int n = 0; unsigned long t0 = millis();
+    while (millis() - t0 < 500) {
+      if (In::available()) {
+        char c = In::read(); t0 = millis();
+        if (c == '\n' || c == '\r') break;
+        if (strchr("SLRUVEu", c) && n < (int)sizeof(buf) - 1) buf[n++] = c;
+      }
+      yield();
+    }
+    buf[n] = 0;
+    bool turnFirst = buf[0] == 'u';
+    strncpy(routeBuf, buf + (turnFirst ? 1 : 0), sizeof(routeBuf) - 1);
+    routeBuf[sizeof(routeBuf) - 1] = 0;
+    if (!routeBuf[0]) { Out.println("[경로] 경로가 비었어요"); return; }
+    Out.printf("[경로] \"%s\" 출발%s\n", routeBuf, turnFirst ? " (먼저 제자리 유턴)" : "");
+    if (turnFirst) {
+      Out.println("[경로] 먼저 제자리 유턴");
+      if (!doTurn('U', '-', false)) { Out.println("[코스 시험] 끝: 유턴하다 선을 못 찾았어요"); return; }
+    }
+    testRoute = routeBuf;
+    testStart();
   } else if (ch == 'P') {         // P = 설정 목록 · P이름=값 = 바꾸고 기억 · P reset
     char buf[48]; int n = 0; unsigned long t0 = millis();
     while (millis() - t0 < 500) {
