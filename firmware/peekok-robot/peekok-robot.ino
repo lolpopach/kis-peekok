@@ -34,6 +34,7 @@
  *   - 초음파(HC-SR04)를 달면(PIN_SONAR_TRIG) 달리는 중 앞에 장애물이 가까우면 멈췄다가 치워지면 다시 간다.
  * 시리얼(115200): s 센서 · u 초음파 · m 바퀴 하나씩 · f 앞으로 · l/r 제자리 회전 · c 속도 재기(5초 선 따라가기)
  *                 t 선 따라가기 시험(점수 · 대기 중 BOOT 버튼도) · k 코스 시험(서버 없이 TEST_ROUTE) · b 모터 힘 맞추기(10초) · [ ] 보정 손으로 · z 보정 처음으로
+ *                 + / - 속도(보드에 기억) · w 바퀴가 도는 최소 세기 찾기
  *                 v 주행 기록 켜기/끄기 · p 계획 보기 · x 멈춤
  */
 #if defined(ESP32)
@@ -99,6 +100,12 @@
 #ifndef TRIM_MAX
 #define TRIM_MAX 0.30
 #endif
+#ifndef PWM_FREQ
+#define PWM_FREQ 1000
+#endif
+#ifndef LIFT_MS
+#define LIFT_MS 500
+#endif
 #ifndef TRACE_MS
 #define TRACE_MS 60000
 #endif
@@ -153,6 +160,8 @@ int lastLeftPwm = 0, lastRightPwm = 0;   // 보정 전 세기 (기록용)
 float motorTrim = MOTOR_TRIM;
 float savedTrim = MOTOR_TRIM;
 float trimBoost = 1.0;        // 'b' 보정 주행 중에는 더 빨리 배움
+int speedPwm = SPEED_PWM;     // 선 따라갈 때 기본 세기 — 시리얼 + / - 로 바꾸고 보드에 기억
+unsigned long allBlackSince = 0;
 unsigned long lastFollowAt = 0;
 // 장애물
 bool blocked = false;
@@ -213,10 +222,15 @@ void setTrim(float t) { motorTrim = t > TRIM_MAX ? TRIM_MAX : t < -TRIM_MAX ? -T
 void trimLoad() {
 #if defined(ESP32)
   Preferences p;
-  if (p.begin("peekok", true)) { if (p.isKey("trim")) setTrim(p.getFloat("trim", MOTOR_TRIM)); p.end(); }
+  if (p.begin("peekok", true)) {
+    if (p.isKey("trim")) setTrim(p.getFloat("trim", MOTOR_TRIM));
+    if (p.isKey("speed")) speedPwm = constrain((int)p.getInt("speed", SPEED_PWM), 0, PWM_MAX);
+    p.end();
+  }
 #elif defined(ESP8266)
   EEPROM.begin(16);
   if (EEPROM.read(0) == 0xA5) { float t; EEPROM.get(1, t); if (t == t) setTrim(t); }
+  if (EEPROM.read(5) == 0xA6) { int v; EEPROM.get(6, v); speedPwm = constrain(v, 0, PWM_MAX); }
 #endif
   savedTrim = motorTrim;
 }
@@ -232,6 +246,15 @@ void trimSave(bool force) {
 #endif
   savedTrim = motorTrim;
   Serial.printf("[모터 보정] %+.3f 저장 (왼쪽 x%.2f · 오른쪽 x%.2f)\n", motorTrim, 1 + motorTrim, 1 - motorTrim);
+}
+void speedSave() {
+#if defined(ESP32)
+  Preferences p;
+  if (p.begin("peekok", false)) { p.putInt("speed", speedPwm); p.end(); }
+#elif defined(ESP8266)
+  EEPROM.write(5, 0xA6); EEPROM.put(6, speedPwm); EEPROM.commit();
+#endif
+  Serial.printf("[속도] %d 저장 (바퀴가 도는 최소 %d · 최대 %d, config.h SPEED_PWM 은 %d)\n", speedPwm, (int)MIN_PWM, (int)PWM_MAX, (int)SPEED_PWM);
 }
 void stopMotors() { drive(0, 0); }
 void led(bool on) { digitalWrite(PIN_LED, on ? LED_ON : LED_OFF); }
@@ -280,7 +303,7 @@ bool obstacleHold() {
 
 // ───────── 선 따라가기 · 교차로 감지 ─────────
 // 앞 두 센서 사이에 선을 두고 달린다. 한 번 부를 때마다 바퀴 세기를 정함.
-void lineFollow(int base) {
+void lineFollow(int base, bool sideRecover = false) {
   unsigned long now = millis();
   unsigned long dt = (lastFollowAt && now - lastFollowAt < 100) ? now - lastFollowAt : 0;   // 오래 쉬었으면 배우지 않음
   lastFollowAt = now;
@@ -288,6 +311,13 @@ void lineFollow(int base) {
   int side = (fl && fr) ? 2 : fl ? -1 : fr ? 1 : 0;
   if (side != followSide) { followSide = side; followSince = now; }
   if (fl || fr) lineSeenAt = now;
+  // 앞 두 센서가 다 놓쳤는데 옆 센서 하나가 선을 봄 = 선이 크게 벗어남 → 그쪽으로 크게 꺾어 되찾기 (선 시험·속도 재기에서만;
+  // 서버 주행·코스 시험에서는 옆 센서가 교차로 신호라서 쓰지 않음)
+  if (sideRecover && side == 0 && (sLeft() != sRight())) {
+    int d = sLeft() ? -1 : 1;
+    drive(base + d * STEER_MAX, base - d * STEER_MAX);
+    return;
+  }
   if (side == 0 || side == 2) { drive(base, base); return; }   // 선이 사이에 있음 · 앞에 가로선 → 곧장
   // 한쪽이 검정 = 선이 그쪽으로 치우침 → 그쪽으로 꺾기. 오래 이어질수록 세게(STEER_RAMP_MS 에 STEER_MAX = 제자리 회전에 가깝게)
   unsigned long t = now - followSince;
@@ -298,8 +328,14 @@ void lineFollow(int base) {
   int steer = STEER_MIN + (int)((long)(STEER_MAX - STEER_MIN) * (long)t / STEER_RAMP_MS);
   drive(base + side * steer, base - side * steer);   // side -1: 왼쪽 바퀴를 느리게 = 왼쪽으로
 }
+// 센서 4개가 모두 LIFT_MS 넘게 검정 = 로봇이 들렸거나(바닥이 멀어 빛이 안 돌아옴) 넓은 검정 바닥 → 멈춰야 함
+bool liftedNow() {
+  if (!(sFrontL() && sFrontR() && (PIN_SENSOR_LEFT < 0 || sLeft()) && sRight())) { allBlackSince = 0; return false; }
+  if (!allBlackSince) allBlackSince = millis();
+  return millis() - allBlackSince >= LIFT_MS;
+}
 // 새로 선을 잡은 뒤(회전·출발) 따라가기 상태를 처음부터
-void followReset() { followSide = -9; followSince = millis(); lineSeenAt = millis(); lastFollowAt = 0; }
+void followReset() { followSide = -9; followSince = millis(); lineSeenAt = millis(); lastFollowAt = 0; allBlackSince = 0; }
 // 좌우 센서가 JUNCTION_MS 이상 선을 보면 교차로 (allowed 가 false 거나 회전 직후면 무시)
 bool junctionSeen(bool allowed) {
   unsigned long now = millis();
@@ -440,7 +476,7 @@ bool spinToLine(int dir, unsigned long minMs) {
 }
 // 핸들을 고정하고 곧장 ms 동안 (교차로 통과·바퀴 축 맞추기)
 void forwardFor(unsigned long ms) {
-  drive(SPEED_PWM, SPEED_PWM);
+  drive(speedPwm, speedPwm);
   unsigned long t0 = millis();
   while (millis() - t0 < ms) yield();
   stopMotors();
@@ -520,8 +556,9 @@ void followStep() {
   // 교차로: 평소엔 선을 안 보는 좌우 센서가 선을 봄 (다음 노드까지 예상 시간의 JUNCTION_GATE 가 지난 뒤부터)
   bool gateOpen = !finalLeg && now - legStart > (unsigned long)(legExpected * JUNCTION_GATE);
   if (junctionSeen(gateOpen)) { atNode(legFrom + 1); return; }
+  if (liftedNow()) { stopMotors(); state = ST_ERROR; Serial.println("[오류] 센서가 모두 검정 — 로봇이 들렸어요?"); return; }
 
-  lineFollow(SPEED_PWM);
+  lineFollow(speedPwm);
   logDrive("주행");
   // 다음 교차로가 예상 시간의 2배 + LOST_LINE_MS 가 지나도 안 나오면 선을 벗어난 것으로 보고 멈춤
   if (!finalLeg && now - legStart > legExpected * 2 + LOST_LINE_MS) {
@@ -564,7 +601,8 @@ void testEvent() {
 void testStep() {
   if (obstacleHold()) return;
   if (junctionSeen(true)) { testEvent(); return; }
-  lineFollow(SPEED_PWM);
+  if (liftedNow()) { testFinish("센서가 모두 검정 — 로봇이 들렸어요?"); return; }
+  lineFollow(speedPwm);
   logDrive("시험");
   if (millis() - testLastEvent > TEST_GIVEUP_MS) testFinish("표시를 너무 오래 못 만났어요");
 }
@@ -631,7 +669,7 @@ void traceFinish(const char* why) {
   float secs = (millis() - traceStartAt) / 1000.0f;
   float zig = secs > 0 ? traceSwitches / secs : 0;
   bool good = true;
-  if (traceLongest >= TRACE_LOST_MS) { good = false; Serial.println("  ✗ 선을 놓쳤어요 → 곡선에서 늦게 꺾음: STEER_RAMP_MS 줄이기 또는 SPEED_PWM 낮추기 (또는 LINE_IS_HIGH·센서 높이 확인)"); }
+  if (traceLongest >= TRACE_LOST_MS) { good = false; Serial.println("  ✗ 선을 놓쳤어요 → 곡선에서 늦게 꺾음: STEER_RAMP_MS 줄이기 또는 속도 낮추기(시리얼 -) (또는 LINE_IS_HIGH·센서 높이 확인)"); }
   if (mid < 60) { good = false; Serial.printf("  △ 가운데 %d%% (60%% 이상이 좋음) → 바로잡기가 잦음: 선이 앞 두 센서 사이 가운데 오게 센서 간격 확인\n", mid); }
   if (zig > 2.5f) { good = false; Serial.printf("  △ 지그재그 초당 %.1f번 → STEER_MIN 줄이기 (지금 %d)\n", zig, (int)STEER_MIN); }
   if (l + r >= 10 && (l > 2 * r || r > 2 * l)) { good = false; Serial.printf("  △ %s으로만 자주 바로잡음 → 모터 힘 차이: 곧은 선에서 b 를 두세 번\n", l > r ? "왼쪽" : "오른쪽"); }
@@ -641,7 +679,8 @@ void traceFinish(const char* why) {
 void traceStep() {
   if (obstacleHold()) { traceLastAt = millis(); return; }
   unsigned long now = millis();
-  lineFollow(SPEED_PWM);
+  if (liftedNow()) { traceFinish("센서가 모두 검정 — 로봇이 들렸거나 선 밖 검정 바닥"); return; }
+  lineFollow(speedPwm, true);
   logDrive("선 시험");
   unsigned long dt = now - traceLastAt;
   traceLastAt = now;
@@ -687,9 +726,9 @@ void serialCommands() {
     }
   } else if (ch == 'm') {
     Serial.println("[바퀴] 왼쪽 바퀴만 1초 앞으로");
-    drive(SPEED_PWM, 0); delay(1000); stopMotors(); delay(500);
+    drive(speedPwm, 0); delay(1000); stopMotors(); delay(500);
     Serial.println("[바퀴] 오른쪽 바퀴만 1초 앞으로");
-    drive(0, SPEED_PWM); delay(1000); stopMotors();
+    drive(0, speedPwm); delay(1000); stopMotors();
     Serial.println("[바퀴] 뒤로 돈 바퀴가 있으면 config.h 의 LEFT_INVERT / RIGHT_INVERT 를 바꾸세요");
   } else if (ch == 'f') { Serial.println("[바퀴] 1초 앞으로"); forwardFor(1000); }
   else if (ch == 'l') { Serial.println("[바퀴] 0.5초 왼쪽 제자리 회전"); drive(-TURN_PWM, TURN_PWM); delay(500); stopMotors(); }
@@ -698,7 +737,7 @@ void serialCommands() {
     Serial.println("5초 동안 선을 따라갑니다(교차로 무시). 간 거리(m) ÷ 5 = ROBOT_SPEED_MPS");
     followReset();
     unsigned long t0 = millis();
-    while (millis() - t0 < 5000) { lineFollow(SPEED_PWM); logDrive("속도"); yield(); }
+    while (millis() - t0 < 5000) { lineFollow(speedPwm, true); logDrive("속도"); yield(); }
     stopMotors();
     trimSave(false);
   } else if (ch == 'b') {
@@ -706,7 +745,7 @@ void serialCommands() {
     followReset();
     trimBoost = 5.0;
     unsigned long t0 = millis();
-    while (millis() - t0 < 10000) { lineFollow(SPEED_PWM); logDrive("보정"); yield(); }
+    while (millis() - t0 < 10000) { lineFollow(speedPwm, true); logDrive("보정"); yield(); }
     trimBoost = 1.0;
     stopMotors();
     Serial.printf("[모터 보정] 결과 %+.3f — 한 번 더 하면 더 정확해요\n", motorTrim);
@@ -714,6 +753,22 @@ void serialCommands() {
   } else if (ch == '[' || ch == ']') {
     setTrim(motorTrim + (ch == ']' ? 0.02f : -0.02f));   // ] 왼쪽을 세게 · [ 오른쪽을 세게
     trimSave(true);
+  } else if (ch == '+' || ch == '-' || ch == '=') {
+    speedPwm = constrain(speedPwm + (ch == '-' ? -5 : 5), (int)MIN_PWM, (int)PWM_MAX);   // = 은 + 와 같음 (Shift 없이)
+    speedSave();
+  } else if (ch == 'w') {
+    Serial.println("[최소 세기] 두 바퀴를 아주 약하게부터 0.5초마다 5씩 올려요. 바퀴가 처음 도는 숫자를 기억하세요 (x 로 멈춤)");
+    for (int v = 40; v <= 200; v += 5) {
+      Serial.printf("  세기 %d\n", v);
+      motor(PIN_LEFT_A, PIN_LEFT_B, PIN_LEFT_EN, v, LEFT_INVERT);       // 보정·최소 세기 올림 없이 그대로
+      motor(PIN_RIGHT_A, PIN_RIGHT_B, PIN_RIGHT_EN, v, RIGHT_INVERT);
+      unsigned long t0 = millis();
+      bool stop = false;
+      while (millis() - t0 < 500) { if (Serial.available() && Serial.read() == 'x') stop = true; yield(); }
+      if (stop) break;
+    }
+    stopMotors();
+    Serial.println("[최소 세기] 끝 — 처음 돈 숫자보다 조금 높게 config.h 의 MIN_PWM 에");
   } else if (ch == 'z') {
     setTrim(MOTOR_TRIM);
     Serial.println("[모터 보정] config.h 의 MOTOR_TRIM 으로 되돌림");
@@ -728,7 +783,7 @@ void serialCommands() {
     verbose = !verbose;
     Serial.printf("주행 기록 %s (0.1초마다 센서·바퀴·초음파)\n", verbose ? "켬" : "끔");
   } else if (ch == 'p') {
-    Serial.printf("모드 %s · rev %s · 방향 %c · 모터 보정 %+.3f\n", serverMode.c_str(), planRev.c_str(), heading, motorTrim);
+    Serial.printf("모드 %s · rev %s · 방향 %c · 모터 보정 %+.3f · 속도 %d (최소 %d, PWM %dHz)\n", serverMode.c_str(), planRev.c_str(), heading, motorTrim, speedPwm, (int)MIN_PWM, (int)PWM_FREQ);
     for (int i = 0; i < planLen; i++) Serial.printf("  %-8s %c %c %.2fm %d\n", plan[i].key, plan[i].action, plan[i].heading, plan[i].nextM, plan[i].toFloor);
   } else if (ch == 'x') {
     stopMotors();
@@ -857,11 +912,17 @@ void setup() {
   pinMode(PIN_LED, OUTPUT);
 #if !defined(ESP32)
   analogWriteRange(PWM_MAX);   // ESP32 는 기본 8비트(0~255)·1kHz 그대로 씀 (PWM_MAX 와 맞춰 둠)
-  analogWriteFreq(1000);
+  analogWriteFreq(PWM_FREQ);
 #endif
   stopMotors();
+#if defined(ESP32)
+  // PWM 주파수: 낮을수록 약한 세기에서도 바퀴가 돌아 천천히 달릴 수 있음 (L298N·작은 기어모터는 100~500Hz 가 무난)
+  if (PIN_LEFT_EN >= 0) { analogWriteFrequency(PIN_LEFT_EN, PWM_FREQ); analogWriteFrequency(PIN_RIGHT_EN, PWM_FREQ); }
+  else { analogWriteFrequency(PIN_LEFT_A, PWM_FREQ); analogWriteFrequency(PIN_LEFT_B, PWM_FREQ); analogWriteFrequency(PIN_RIGHT_A, PWM_FREQ); analogWriteFrequency(PIN_RIGHT_B, PWM_FREQ); }
+  stopMotors();
+#endif
   trimLoad();
-  Serial.printf("모터 보정 %+.3f (왼쪽 x%.2f · 오른쪽 x%.2f)\n", motorTrim, 1 + motorTrim, 1 - motorTrim);
+  Serial.printf("모터 보정 %+.3f (왼쪽 x%.2f · 오른쪽 x%.2f) · 속도 %d · PWM %dHz\n", motorTrim, 1 + motorTrim, 1 - motorTrim, speedPwm, (int)PWM_FREQ);
 
 #if defined(ESP32)
   WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t info) {
