@@ -834,6 +834,13 @@ void wifiHelp(bool scan) {
   Serial.print("[WiFi] 다시 연결 중");
 }
 
+bool serverReady = false;      // WiFi 가 붙고 서버에서 처음 상태를 읽었음
+bool wifiAnnounced = false;
+unsigned long wifiStart = 0, wifiDotAt = 0;
+int wifiFails = 0;
+int shownReason = -1;
+void wifiTick();
+
 void setup() {
   Serial.begin(115200);
   delay(100);
@@ -865,36 +872,55 @@ void setup() {
 #endif
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
-  Serial.printf("\nWiFi \"%s\" 연결 중", WIFI_SSID);
-  unsigned long wifiStart = millis();
-  int wifiFails = 0;
-#if defined(ESP32)
-  int shownReason = -1;
-#endif
-  while (WiFi.status() != WL_CONNECTED) {
-    led(true); delay(150); led(false); delay(150); Serial.print('.');
-#if defined(ESP32)
-    int r = wifiReason;   // 끊긴 이유가 바뀔 때마다 바로 보여 줌
-    if (r && r != shownReason) { shownReason = r; Serial.printf("\n[WiFi] 끊김: 이유 %d (%s) %s\n", r, WiFi.disconnectReasonName((wifi_err_reason_t)r), reasonHelp(r)); }
-#endif
-    if (millis() - wifiStart > 20000) { wifiHelp(wifiFails++ % 3 == 0); wifiStart = millis(); }   // 목록은 1분마다
-  }
-  Serial.printf("\nWiFi 연결됨: %s\n", WiFi.localIP().toString().c_str());
-
+  Serial.printf("\nWiFi \"%s\" 연결 중 — 그동안에도 시리얼 시험 명령(s m t b k …)·BOOT 버튼 선 시험은 바로 쓸 수 있어요\n", WIFI_SSID);
   // HTTPS: 인증서 검사를 하지 않는 간단한 방식(학교 WiFi 안에서 사용). 보안을 높이려면 README 참고.
   tls.setInsecure();
+  wifiStart = millis();
+}
+
+// WiFi 연결을 기다리는 동안(막지 않음): 점·끊긴 이유·20초마다 진단. 처음 붙으면 서버에서 지금 상태를 읽는다.
+// 시험·주행 중에는 진단(WiFi 검색은 몇 초 걸림)을 하지 않는다.
+void wifiTick() {
+  bool busy = state == ST_FOLLOW || state == ST_TEST || state == ST_TRACE || state == ST_ELEVATOR;
+  if (WiFi.status() == WL_CONNECTED) {
+    if (!wifiAnnounced) { wifiAnnounced = true; Serial.printf("\nWiFi 연결됨: %s\n", WiFi.localIP().toString().c_str()); }
+    if (!serverReady && !busy) {
 #if !defined(ESP32)
-  tls.setSession(&tlsSession);                 // 다시 접속할 때 빠르게
-  if (tls.probeMaxFragmentLength(SERVER_HOST, 443, 1024)) tls.setBufferSizes(1024, 1024);
+      tls.setSession(&tlsSession);               // 다시 접속할 때 빠르게
+      if (tls.probeMaxFragmentLength(SERVER_HOST, 443, 1024)) tls.setBufferSizes(1024, 1024);
 #endif
-  pollDrive();
-  doneRev = planRev;                           // 켜기 전에 남아 있던 계획은 다시 달리지 않는다
-  Serial.printf("서버 연결됨 · 모드 %s\n", serverMode.c_str());
+      pollDrive();
+      doneRev = planRev;                         // 켜기 전에 남아 있던 계획은 다시 달리지 않는다
+      serverReady = true;
+      lastPoll = millis();
+      Serial.printf("서버 연결됨 · 모드 %s\n", serverMode.c_str());
+    }
+    return;
+  }
+  if (wifiAnnounced) { wifiAnnounced = false; wifiStart = millis(); Serial.print("\n[WiFi] 끊김 — 다시 연결 중"); }
+  if (busy) return;
+  if (millis() - wifiDotAt >= 1000) { wifiDotAt = millis(); Serial.print('.'); }
+#if defined(ESP32)
+  int r = wifiReason;   // 끊긴 이유가 바뀔 때마다 바로 보여 줌
+  if (r && r != shownReason) { shownReason = r; Serial.printf("\n[WiFi] 끊김: 이유 %d (%s) %s\n", r, WiFi.disconnectReasonName((wifi_err_reason_t)r), reasonHelp(r)); }
+#endif
+  if (millis() - wifiStart > 20000) { wifiHelp(wifiFails++ % 3 == 0); wifiStart = millis(); }   // 목록은 1분마다
 }
 
 void loop() {
   serialCommands();
-  if (WiFi.status() != WL_CONNECTED && state != ST_FOLLOW && state != ST_TEST && state != ST_TRACE) { stopMotors(); led(true); delay(200); return; }
+  wifiTick();
+  // WiFi·서버가 아직(또는 끊김)이면 대기 중에는 서버 확인만 건너뜀 — 시리얼 시험과 BOOT 버튼 선 시험은 그대로 됨
+  if ((WiFi.status() != WL_CONNECTED || !serverReady) && (state == ST_IDLE || state == ST_ERROR)) {
+    stopMotors();
+    led((millis() / 150) % 2);
+    if (buttonClicked()) {
+      Serial.println("\n[선 시험] BOOT 버튼 — 2초 뒤 출발");
+      for (int i = 0; i < 10; i++) { led(i % 2); delay(200); }
+      traceStart();
+    }
+    return;
+  }
 
   switch (state) {
     case ST_IDLE:
