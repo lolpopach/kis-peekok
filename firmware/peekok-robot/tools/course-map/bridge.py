@@ -45,7 +45,7 @@ class Locator:
         # 지도를 위아래로 뒤집었는지 — 처음 값은 '출발해서 첫 분기가 오른쪽'(사진은 반대쪽에서 찍힘)
         self.flip = True
         self.mirror = True         # 좌우 뒤집기: 출발점이 왼쪽, 출발해서 분기 1 이 로봇 왼쪽 (사용자 확인)
-        self.flip_known = False    # 실제 주행이나 버튼으로 방향을 확인했는지
+        self.flip_known = True     # 방향 확인됨 (사용자: 출발해서 분기 1 은 왼쪽) — False 면 첫 분기로 스스로 맞춤
         try:
             with open(SETTINGS) as f: st = json.load(f)
             self.flip = bool(st['flip']); self.flip_known = True

@@ -72,7 +72,7 @@
       <div class="hint">지도의 파란 동그라미를 가고 싶은 순서대로 누르세요</div>
       <div class="q" id="queue">목적지 없음</div>
       <div class="route" id="route"></div>
-      <div class="warn" id="flipwarn" hidden>왼쪽/오른쪽 방향을 아직 확인 못 했어요 — 출발점에서 보면 분기 1 이 지도 그림처럼 로봇 오른쪽인지 확인하고, 반대면 '지도 위아래 뒤집기'</div>
+      <div class="warn" id="flipwarn" hidden>왼쪽/오른쪽 방향을 아직 확인 못 했어요 — 출발점에서 보면 분기 1 이 로봇 왼쪽인지 확인하고, 반대면 '지도 위아래 뒤집기'</div>
       <div class="btns"><button class="go" id="go">이 순서로 가기</button><button id="clear">지우기</button></div>
     </div>
     <div class="btns">
@@ -140,8 +140,9 @@ function setPicks(p) {
 }
 function drawTargets(s) {
   const g = $('targets');
-  if (g.childElementCount !== s.targets.length || g.dataset.flip !== String(s.flip)) {
-    g.replaceChildren(); g.dataset.flip = s.flip;
+  const key = JSON.stringify(s.targets);   // 뒤집기(위아래·좌우)로 자리가 바뀌면 다시 그림
+  if (g.dataset.key !== key) {
+    g.replaceChildren(); g.dataset.key = key;
     for (const t of s.targets) {
       const grp = el('g', { class: 'target', transform: `translate(${t.x} ${t.y})` });
       grp.dataset.key = t.key;
