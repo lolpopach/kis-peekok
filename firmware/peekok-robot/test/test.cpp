@@ -192,13 +192,10 @@ int main(int argc, char** argv) {
   fake_pins[PIN_FRONT_LEFT] = LOW; fake_pins[PIN_FRONT_RIGHT] = LOW;
   CHECK(!sLeft(), "ESP8266: 왼쪽 옆 센서 없음(-1) → 항상 바닥");
   fake_pins[PIN_FRONT_RIGHT] = HIGH; junctionSeen(true); fake_pins[PIN_FRONT_RIGHT] = LOW;   // 앞 오른쪽이 먼저 지나감
-  frontBothMove = 0; decideStart = 0;
   fake_analog = 1000;                                  // 오른쪽 옆 센서 검정
   CHECK(!junctionSeen(true), "옆 센서가 막 켜짐 → 아직 (잡음 거르기)");
   fake_millis += JUNCTION_MS;
-  CHECK(!junctionSeen(true), "JUNCTION_MS 이어지면 후보 → 반대쪽 기다림");
-  moveMs += DECIDE_MS + 1; fake_millis += 10;
-  CHECK(junctionSeen(true) && junctionR && !junctionL, "DECIDE_MS 뒤 결정: 뒤 오른쪽만 → 오른쪽 분기");
+  CHECK(junctionSeen(true), "JUNCTION_MS 이어지면 교차로");
   CHECK(!junctionSeen(false), "서버 주행에서 예상 시간 전(문 닫힘)이면 무시");
   junctionIgnoreMove = moveMs + 100; junctionSince = 0;
   fake_millis += JUNCTION_MS + 10;
@@ -264,7 +261,6 @@ int main(int argc, char** argv) {
   CHECK(junctionArmed, "바닥을 0.1초 보면 다시 셀 준비");
   fake_pins[PIN_FRONT_RIGHT] = HIGH; junctionSeen(true); fake_pins[PIN_FRONT_RIGHT] = LOW;
   fake_analog = 1000; junctionSeen(true); fake_millis += JUNCTION_MS; moveMs += JUNCTION_MS;
-  junctionSeen(true); moveMs += DECIDE_MS + 1; fake_millis += 10;
   CHECK(junctionSeen(true), "그 다음 선 = 다음 교차로");
   fake_analog = 0;
 
@@ -305,16 +301,6 @@ int main(int argc, char** argv) {
   CHECK(!junctionSeen(true), "앞 오른쪽을 본 지 너무 오래됐으면 무시");
   fake_analog = 0; junctionSince = 0;
 
-  printf("== 뒤로 가며 앞 센서로 선 맞추기 ==\n");
-  fake_pins[PIN_FRONT_LEFT] = LOW; fake_pins[PIN_FRONT_RIGHT] = LOW; revSide = 0;
-  reverseFollow(400);
-  CHECK(lastLeftPwm == -400 && lastRightPwm == -400, "앞 센서 둘 다 바닥 → 곧장 뒤로");
-  fake_pins[PIN_FRONT_LEFT] = HIGH; fake_millis += 10; reverseFollow(400);
-  CHECK(lastLeftPwm < lastRightPwm && lastLeftPwm < 0 && lastRightPwm <= 0, "앞 왼쪽 검정 → 앞으로 갈 때처럼 왼쪽으로 돌림 (왼쪽 바퀴가 더 빨리 뒤로)");
-  fake_pins[PIN_FRONT_LEFT] = LOW; fake_pins[PIN_FRONT_RIGHT] = HIGH; fake_millis += 10; reverseFollow(400);
-  CHECK(lastLeftPwm > lastRightPwm && lastLeftPwm <= 0, "앞 오른쪽 검정 → 오른쪽으로 돌림");
-  fake_pins[PIN_FRONT_RIGHT] = LOW;
-
   printf("== 깜빡임 거르기 (떠 있는 핀) ==\n");
   { Flicker f = {false, {0, 0, 0, 0}, 0, false}; bool any = false;
     for (int i = 0; i < 20; i++) { fake_millis += 100; if (steadyRead(f, i % 2 == 0, "시험")) any = (i > 4) ? true : any; }
@@ -325,15 +311,6 @@ int main(int argc, char** argv) {
     fake_millis += 10; steadyRead(g, true, "시험"); fake_millis += 200;
     CHECK(steadyRead(g, true, "시험") == true, "진짜 선(한 번 켜짐)은 그대로");
     fake_millis += 100; steadyRead(g, false, "시험"); }
-
-  printf("== T자 판단: 앞 센서 둘이 동시에 검정 → T자 ==\n");
-  junctionArmed = true; junctionIgnoreMove = 0; junctionSince = 0; decideStart = 0; frontBothMove = 0; fake_analog = 0;
-  fake_pins[PIN_FRONT_LEFT] = HIGH; fake_pins[PIN_FRONT_RIGHT] = HIGH; junctionSeen(true);   // 가로선을 앞 센서 둘이 지남
-  fake_pins[PIN_FRONT_LEFT] = LOW; fake_pins[PIN_FRONT_RIGHT] = LOW; moveMs += 100;
-  fake_analog = 1000; junctionSeen(true); fake_millis += JUNCTION_MS; junctionSeen(true); moveMs += DECIDE_MS + 1; fake_millis += 10;
-  if (CROSS_LOOKBACK_MS > 0) CHECK(junctionSeen(true) && junctionL && junctionR, "뒤 한쪽만 봐도 직전에 앞 둘이 동시에 검정이면 T자");
-  else CHECK(junctionSeen(true) && junctionR && !junctionL, "앞 둘 동시 검정 규칙을 끄면 뒤 오른쪽만 → 오른쪽 분기");
-  fake_analog = 0;
 
   printf("== 제자리 회전 방향 ==\n");
   fake_pins[PIN_FRONT_LEFT] = LOW; fake_pins[PIN_FRONT_RIGHT] = LOW;
