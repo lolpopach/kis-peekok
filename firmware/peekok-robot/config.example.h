@@ -26,7 +26,7 @@
 #define PIN_RIGHT_B      26   // L298N IN4
 #define PIN_FRONT_LEFT   14   // 앞 왼쪽 라인 센서 DO
 #define PIN_FRONT_RIGHT  33   // 앞 오른쪽 라인 센서 DO
-#define PIN_SENSOR_LEFT  32   // 차체 왼쪽(바깥) 라인 센서 DO
+#define PIN_SENSOR_LEFT  35   // 차체 왼쪽(바깥·뒤) 라인 센서 DO — 32 는 앞 오른쪽(33)과 신호가 옮겨붙어 35 로 옮김 (입력 전용 핀)
 #define PIN_SENSOR_RIGHT 27   // 차체 오른쪽(바깥) 라인 센서 DO (27 은 ADC2 라 WiFi 중엔 아날로그로 못 읽음)
 #define SENSOR_LEFT_ANALOG  0  // 옆 센서를 AO(아날로그)로 읽을 때만 1 — ESP32 는 ADC1 핀(32~39)만
 #define SENSOR_RIGHT_ANALOG 0
