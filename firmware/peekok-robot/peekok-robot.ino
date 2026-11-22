@@ -782,10 +782,14 @@ const char* testRoute = routeBuf;
 bool backToLine() {
   unsigned long m0 = moveMs, t0 = millis();
   moveLastAt = 0;
+  int savedDuty = speedDuty;
+  speedDuty = 100;               // 뒤로 갈 때는 끊지 않고 계속 (끊으면 뒤로 잘 안 감)
+  struct Restore { int& d; int v; ~Restore() { d = v; } } restore{speedDuty, savedDuty};
   bool cleared = false, seenL = PIN_SENSOR_LEFT < 0, seenR = PIN_SENSOR_RIGHT < 0;
   while (moveMs - m0 < BACK_TIMEOUT_MS && millis() - t0 < BACK_TIMEOUT_MS * 12UL) {
     driveP(-BACK_PWM, -BACK_PWM);
     bool l = sLeft(), r = sRight();
+    logDrive("뒤로");
     if (!cleared) { if (!l && !r) cleared = true; }
     else {
       if (l) seenL = true;
