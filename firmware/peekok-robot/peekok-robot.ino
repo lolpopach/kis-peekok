@@ -432,7 +432,11 @@ void lineFollow(int base, bool sideRecover = false) {
   if (t < STEER_RAMP_MS && dt) setTrim(motorTrim + side * (float)TRIM_LEARN * trimBoost * dt / 1000.0f);
   if (t > STEER_RAMP_MS) t = STEER_RAMP_MS;
   int steer = STEER_MIN + (int)((long)(STEER_MAX - STEER_MIN) * (long)t / STEER_RAMP_MS);
-  driveP(base + side * steer, base - side * steer);   // side -1: 왼쪽 바퀴를 느리게 = 왼쪽으로
+  int l = base + side * steer, r = base - side * steer;   // side -1: 왼쪽 바퀴를 느리게 = 왼쪽으로
+  // 제자리 회전은 모터가 잘 못 하니 안쪽 바퀴는 뒤로 돌리지 않음 (멈춤까지만) → 언제나 앞으로 가면서 꺾음
+  if (l < 0) l = 0;
+  if (r < 0) r = 0;
+  driveP(l, r);
 }
 // 센서 4개가 모두 LIFT_MS 넘게 검정 = 로봇이 들렸거나(바닥이 멀어 빛이 안 돌아옴) 넓은 검정 바닥 → 멈춰야 함
 bool liftedNow() {

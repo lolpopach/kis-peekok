@@ -133,7 +133,7 @@ int main(int argc, char** argv) {
   CHECK(lastLeftPwm < lastRightPwm && lastRightPwm - lastLeftPwm == 2 * STEER_MIN, "앞 왼쪽 검정 → 왼쪽으로 살살");
   fake_millis += STEER_RAMP_MS;
   lineFollow(SPEED_PWM);
-  CHECK(lastRightPwm - lastLeftPwm == 2 * STEER_MAX, "오래 이어지면 STEER_MAX 까지 세게");
+  CHECK(lastLeftPwm == 0 && lastRightPwm == SPEED_PWM + STEER_MAX, "오래 이어지면 STEER_MAX 까지 세게 (안쪽 바퀴는 0 까지만)");
   fake_pins[PIN_FRONT_LEFT] = LOW; fake_pins[PIN_FRONT_RIGHT] = HIGH;
   lineFollow(SPEED_PWM);
   CHECK(lastLeftPwm > lastRightPwm && lastLeftPwm - lastRightPwm == 2 * STEER_MIN, "앞 오른쪽 검정 → 오른쪽으로 (세기 처음부터)");
