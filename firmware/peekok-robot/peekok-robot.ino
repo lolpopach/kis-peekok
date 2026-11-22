@@ -228,6 +228,7 @@ int P_BACK_EXTRA_MS = BACK_EXTRA_MS;
 int P_LIFT_MS = LIFT_MS;
 int P_FLICKER_MS = FLICKER_MS;
 int P_TEST_GIVEUP_MS = TEST_GIVEUP_MS;
+int P_PULSE_MS = PULSE_MS;
 int P_UTURN_PWM = UTURN_PWM;
 int P_TURN_MODE = TURN_MODE;
 int P_SPIN_DUTY = SPIN_DUTY;
@@ -270,6 +271,8 @@ int P_SPIN_BRAKE_MS = SPIN_BRAKE_MS;
 #define FLICKER_MS P_FLICKER_MS
 #undef TEST_GIVEUP_MS
 #define TEST_GIVEUP_MS P_TEST_GIVEUP_MS
+#undef PULSE_MS
+#define PULSE_MS P_PULSE_MS
 #undef UTURN_PWM
 #define UTURN_PWM P_UTURN_PWM
 #undef TURN_MODE
@@ -1411,6 +1414,7 @@ struct Param { const char* key; int* v; int lo, hi; const char* help; };
 Param params[] = {
   {"speed", &speedPwm, 0, 255, "직진 세기"},
   {"duty", &speedDuty, 10, 100, "바퀴 돌리는 비율(%)"},
+  {"pulseMs", &P_PULSE_MS, 20, 1000, "끊어 가기 한 주기(ms) — 짧을수록 부드러움"},
   {"tfwd", &turnForwardMs, 0, 1500, "회전 전 전진(ms)"},
   {"uign", &uturnIgnoreMs, 0, 5000, "유턴: 처음 선 무시(ms)"},
   {"uback", &uturnBackMs, 0, 3000, "유턴 전 뒤로(ms)"},
