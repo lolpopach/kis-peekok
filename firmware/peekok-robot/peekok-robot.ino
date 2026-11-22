@@ -216,6 +216,9 @@ int speedDuty = SPEED_DUTY;   // 느리게 달리기: 한 주기(PULSE_MS) 중 �
 unsigned long moveMs = 0;     // 바퀴를 실제로 돌린 시간 합 (회전 전 전진·쿨다운을 속도와 상관없이 같은 거리로)
 unsigned long moveLastAt = 0;
 int turnForwardMs = TURN_FORWARD_MS;   // 교차로 감지 뒤 더 가는 시간 — 시리얼 , . 로 바꾸고 보드에 기억
+// 뒤 센서 깜빡임 거르기 상태 (steadyRead)
+struct Flicker { bool last; unsigned long t[4]; int i; bool noisy; };
+Flicker flkL = {false, {0, 0, 0, 0}, 0, false}, flkR = {false, {0, 0, 0, 0}, 0, false};
 bool junctionL = false, junctionR = false;   // 이번 교차로에서 선을 본 옆 센서
 bool junctionArmed = true;       // 회전 뒤에는 옆 센서가 방금 지난 선(제자리 회전이라 옆 센서 밑에 남음)을 벗어나 바닥을 본 뒤에야 다시 교차로를 셈
 unsigned long sideClearSince = 0;
@@ -461,8 +464,6 @@ void followReset() { followSide = -9; followSince = millis(); lineSeenAt = milli
 // 좌우 센서가 JUNCTION_MS 이상 선을 보면 교차로 (allowed 가 false 거나 회전 직후면 무시)
 // 깜빡임 거르기: 값이 FLICKER_MS 안에 4번 넘게 바뀌면(떠 있는 핀·잡음) 그 센서는 바닥으로 봄.
 // 진짜 선은 한 번 지나가며 많아야 두 번 바뀜.
-struct Flicker { bool last; unsigned long t[4]; int i; bool noisy; };
-Flicker flkL = {false, {0, 0, 0, 0}, 0, false}, flkR = {false, {0, 0, 0, 0}, 0, false};
 bool steadyRead(Flicker& f, bool v, const char* name) {
   unsigned long now = millis();
   if (v != f.last) { f.last = v; f.t[f.i] = now ? now : 1; f.i = (f.i + 1) % 4; }
