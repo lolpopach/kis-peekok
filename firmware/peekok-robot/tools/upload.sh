@@ -24,6 +24,9 @@ if [ -n "$PORT" ]; then
   arduino-cli upload --fqbn "$FQBN" -p "$PORT" --input-dir "$BUILD" "$DIR" > "$BUILD.up.log" 2>&1 || { tail -3 "$BUILD.up.log"; echo "[USB 업로드 실패]"; exit 1; }
 else
   HOST="${ROBOT_HOST:-peekok-robot.local}"
+  # espota 는 .local 이름을 못 찾을 때가 있어 IP 로 바꿔 넘김
+  IP=$(perl -MSocket -e '$a = inet_aton($ARGV[0]); print inet_ntoa($a) if $a' "$HOST" 2>/dev/null || true)
+  [ -n "$IP" ] && HOST="$IP"
   ESPOTA=$(ls ~/Library/Arduino15/packages/esp32/hardware/esp32/*/tools/espota.py | tail -1)
   PASS=$(perl -ne '$o = $1 if /^#define\s+OTA_PASS\s+"(.*)"/; $k = $1 if /^#define\s+ROBOT_KEY\s+"(.*)"/; END { print defined $o ? $o : $k }' "$DIR/config.h")
   echo "[WiFi 로 올리는 중: $HOST]"

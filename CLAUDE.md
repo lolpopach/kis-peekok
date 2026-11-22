@@ -32,6 +32,9 @@
   Mac 에서 시리얼 읽기: 포트는 `ls /dev/cu.usbserial-*`(다시 꽂으면 이름이 바뀜), 업로드가 끊기면 `UploadSpeed=115200`.
   Mac 에는 `timeout` 이 없고 `arduino-cli monitor` 는 시간 제한을 걸면 아무것도 안 나오니, 포트를 직접 열어 시간 제한(perl 등)을 걸고 읽는다.
   펌웨어는 켤 때만 연결 로그를 찍으므로 esptool 로 보드를 재시작한 뒤 읽는다. config.h 의 WiFi 비밀번호·로봇 키는 출력하지 않는다.
+  무선: 로봇이 WiFi 에 붙으면 시리얼을 TCP 2323(peekok-robot.local)으로도 보내고, ArduinoOTA 로 무선 업로드(비밀번호 = config.h OTA_PASS 또는 ROBOT_KEY).
+  `firmware/peekok-robot/tools/upload.sh`(USB 있으면 USB, 없으면 WiFi — espota 는 .local 을 못 찾을 때가 있어 IP 로 바꿔 넘김), `tools/run.pl`(USB 없으면 WiFi).
+  사용자 Mac `~/.zshrc` 에 `run`·`upload` 별칭. Mac 과 로봇이 같은 WiFi 여야 함(Mac 이 다른 WiFi 로 자동 재접속하면 무선이 안 됨).
   서버 쪽 확인: D1 `robot.body_seen_at`(몸체 마지막 인증 접속)·`seen_at`(로봇 화면) — 클라우드 세션이 Cloudflare API 로 본다.
   WiFi: ESP32 는 2.4GHz 만, iPhone 핫스팟은 '호환성 최대화' + 설정 화면을 열어 둬야 보임(172.20.10.x). 시험 중엔 iPhone 핫스팟 `zzzz` 사용.
 - 길 안내 방식 두 가지(`public/js/guide.js`): 길 안내 화면에서 "데려다주세요"(로봇이 문 앞까지 앞장섬, 로봇 상태 guiding → guided → returning)
