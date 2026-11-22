@@ -24,7 +24,7 @@
   차체 왼쪽 IO32·오른쪽 IO27(선에서 6~7cm 바깥 → 교차로 감지). 선 끝은 센서로 못 알아서 끝에 가로선을 붙인다.
   좌우 모터 힘이 달라서 보정값(motorTrim)을 모든 바퀴 세기에 곱하고, 선 따라가며 스스로 배워 보드(Preferences)에 저장한다(시리얼 b·[·]·z).
   오른쪽 바퀴는 반대 배선(RIGHT_INVERT 1). 초음파는 지금 안 씀(IO14 를 센서가 씀, 다시 달면 PIN_SONAR_TRIG).
-  시리얼 `k` = 서버 없이 TEST_ROUTE 코스 시험, `v` = 주행 기록(센서 4개·바퀴). WiFi 가 붙어야 loop 가 돌아 시리얼 명령을 받는다.
+  시리얼 `t` = 선 따라가기 시험(점수·조정 안내, 대기 중 BOOT 버튼도), `k` = 서버 없이 TEST_ROUTE 코스 시험, `v` = 주행 기록(센서 4개·바퀴). WiFi 가 붙어야 loop 가 돌아 시리얼 명령을 받는다.
   펌웨어 점검: `bash firmware/peekok-robot/test/run.sh` (호스트 g++ + Arduino 흉내 헤더로 컴파일하고 서버 driveText 응답으로 논리 시험,
   항상 ESP8266 코드 경로지만 공유 로직이라 ESP32 쪽도 같이 검증됨). 실제 보드 컴파일·업로드는 보드가 꽂힌 사용자 Mac 의 Claude CLI 세션에서 `arduino-cli`
   (`arduino-cli compile --fqbn esp32:esp32:esp32 -u -p <포트> firmware/peekok-robot`, ESP8266 은 `esp8266:esp8266:nodemcuv2`)로 한다.

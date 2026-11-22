@@ -33,7 +33,7 @@
  *     멈출 때 보드 저장공간에 기억한다. 곡선(오래 이어지는 꺾기)은 배우지 않는다.
  *   - 초음파(HC-SR04)를 달면(PIN_SONAR_TRIG) 달리는 중 앞에 장애물이 가까우면 멈췄다가 치워지면 다시 간다.
  * 시리얼(115200): s 센서 · u 초음파 · m 바퀴 하나씩 · f 앞으로 · l/r 제자리 회전 · c 속도 재기(5초 선 따라가기)
- *                 k 코스 시험(서버 없이 TEST_ROUTE) · b 모터 힘 맞추기(10초) · [ ] 보정 손으로 · z 보정 처음으로
+ *                 t 선 따라가기 시험(점수 · 대기 중 BOOT 버튼도) · k 코스 시험(서버 없이 TEST_ROUTE) · b 모터 힘 맞추기(10초) · [ ] 보정 손으로 · z 보정 처음으로
  *                 v 주행 기록 켜기/끄기 · p 계획 보기 · x 멈춤
  */
 #if defined(ESP32)
@@ -99,6 +99,12 @@
 #ifndef TRIM_MAX
 #define TRIM_MAX 0.30
 #endif
+#ifndef TRACE_MS
+#define TRACE_MS 60000
+#endif
+#ifndef TRACE_LOST_MS
+#define TRACE_LOST_MS 1500
+#endif
 #ifndef TEST_GIVEUP_MS
 #define TEST_GIVEUP_MS 30000
 #endif
@@ -127,7 +133,7 @@ String serverMode = "idle";
 String serverPassed = "-";
 
 // ───────── 주행 상태 ─────────
-enum State { ST_IDLE, ST_FOLLOW, ST_ELEVATOR, ST_ERROR, ST_TEST };
+enum State { ST_IDLE, ST_FOLLOW, ST_ELEVATOR, ST_ERROR, ST_TEST, ST_TRACE };
 State state = ST_IDLE;
 int legFrom = 0;              // 지금 달리는 구간: plan[legFrom] → plan[legFrom + 1]
 char heading = HOME_HEADING;  // 지금 바라보는 도면 방향
@@ -588,6 +594,77 @@ void elevatorStep() {
   startLeg(j + 1);
 }
 
+// ───────── 선 따라가기 시험 (시리얼 't' 또는 대기 중 BOOT 버튼) ─────────
+// 교차로·서버 없이 선만 따라가며, 앞 센서 상태별 시간을 재서 얼마나 똑바로 따라가는지 알려 준다.
+// 아무 모양으로 그린 선(곡선 포함) 위에서 시험. TRACE_MS 가 지나거나, 한쪽 꺾기가 TRACE_LOST_MS 넘게 이어지면(선을 놓침) 멈춤.
+unsigned long traceStartAt = 0, traceLastAt = 0, traceLastPrint = 0;
+unsigned long traceMs[4];          // 0 가운데(둘 다 바닥) · 1 왼쪽으로 바로잡기 · 2 오른쪽으로 · 3 가로선(둘 다 검정)
+unsigned long traceLongest = 0;    // 가장 길게 이어진 한쪽 꺾기(ms)
+int traceSwitches = 0;             // 왼쪽↔오른쪽 바로잡기가 바뀐 횟수 (지그재그)
+int traceLastSide = 0;
+int traceSlot(int side) { return side == -1 ? 1 : side == 1 ? 2 : side == 2 ? 3 : 0; }
+void traceStart() {
+  for (int i = 0; i < 4; i++) traceMs[i] = 0;
+  traceLongest = 0; traceSwitches = 0; traceLastSide = 0;
+  blocked = false; nearCount = farCount = 0;
+  followReset();
+  traceStartAt = traceLastAt = traceLastPrint = millis();
+  state = ST_TRACE;
+  Serial.printf("[선 시험] 시작 — 최대 %lu초, x 또는 BOOT 버튼으로 멈춤\n", (unsigned long)(TRACE_MS / 1000));
+}
+int tracePct(int i) {
+  unsigned long all = traceMs[0] + traceMs[1] + traceMs[2] + traceMs[3];
+  return all ? (int)(traceMs[i] * 100 / all) : 0;
+}
+void tracePrint(const char* tag) {
+  unsigned long sec = (millis() - traceStartAt) / 1000;
+  Serial.printf("[%s] %lu초 · 가운데 %d%% · 왼쪽으로 바로잡기 %d%% · 오른쪽으로 %d%% · 가로선 %d%% · 가장 긴 꺾기 %lu.%02lu초 · 지그재그 %d번 · 보정 %+.3f\n",
+    tag, sec, tracePct(0), tracePct(1), tracePct(2), tracePct(3), traceLongest / 1000, (traceLongest % 1000) / 10, traceSwitches, motorTrim);
+}
+void traceFinish(const char* why) {
+  stopMotors();
+  state = ST_IDLE;
+  doneRev = planRev;
+  Serial.printf("[선 시험] 끝: %s\n", why);
+  tracePrint("결과");
+  int mid = tracePct(0), l = tracePct(1), r = tracePct(2);
+  float secs = (millis() - traceStartAt) / 1000.0f;
+  float zig = secs > 0 ? traceSwitches / secs : 0;
+  bool good = true;
+  if (traceLongest >= TRACE_LOST_MS) { good = false; Serial.println("  ✗ 선을 놓쳤어요 → 곡선에서 늦게 꺾음: STEER_RAMP_MS 줄이기 또는 SPEED_PWM 낮추기 (또는 LINE_IS_HIGH·센서 높이 확인)"); }
+  if (mid < 60) { good = false; Serial.printf("  △ 가운데 %d%% (60%% 이상이 좋음) → 바로잡기가 잦음: 선이 앞 두 센서 사이 가운데 오게 센서 간격 확인\n", mid); }
+  if (zig > 2.5f) { good = false; Serial.printf("  △ 지그재그 초당 %.1f번 → STEER_MIN 줄이기 (지금 %d)\n", zig, (int)STEER_MIN); }
+  if (l + r >= 10 && (l > 2 * r || r > 2 * l)) { good = false; Serial.printf("  △ %s으로만 자주 바로잡음 → 모터 힘 차이: 곧은 선에서 b 를 두세 번\n", l > r ? "왼쪽" : "오른쪽"); }
+  if (good) Serial.println("  ✓ 선을 잘 따라가요");
+  trimSave(false);
+}
+void traceStep() {
+  if (obstacleHold()) { traceLastAt = millis(); return; }
+  unsigned long now = millis();
+  lineFollow(SPEED_PWM);
+  logDrive("선 시험");
+  unsigned long dt = now - traceLastAt;
+  traceLastAt = now;
+  traceMs[traceSlot(followSide)] += dt;
+  if (followSide == -1 || followSide == 1) {
+    if (traceLastSide && traceLastSide != followSide) traceSwitches++;
+    traceLastSide = followSide;
+    unsigned long run = now - followSince;
+    if (run > traceLongest) traceLongest = run;
+    if (run >= TRACE_LOST_MS) { traceFinish("한쪽으로 너무 오래 꺾음 (선을 놓친 듯)"); return; }
+  }
+  if (now - traceLastPrint >= 1000) { traceLastPrint = now; tracePrint("선 시험"); }
+  if (now - traceStartAt >= TRACE_MS) traceFinish("시간 끝");
+}
+// BOOT 버튼을 한 번 누르면 true (뗄 때까지 기다림)
+bool buttonClicked() {
+  if (!buttonPressed()) return false;
+  delay(30);
+  if (!buttonPressed()) return false;
+  while (buttonPressed()) yield();
+  return true;
+}
+
 // ───────── 시리얼 점검 명령 ─────────
 void serialCommands() {
   if (!Serial.available()) return;
@@ -641,6 +718,9 @@ void serialCommands() {
     setTrim(MOTOR_TRIM);
     Serial.println("[모터 보정] config.h 의 MOTOR_TRIM 으로 되돌림");
     trimSave(true);
+  } else if (ch == 't') {
+    if (state == ST_FOLLOW || state == ST_ELEVATOR) { Serial.println("서버 주행 중이라 시험할 수 없어요 (x 로 멈춘 뒤)"); return; }
+    traceStart();
   } else if (ch == 'k') {
     if (state == ST_FOLLOW || state == ST_ELEVATOR) { Serial.println("서버 주행 중이라 시험할 수 없어요 (x 로 멈춘 뒤)"); return; }
     testStart();
@@ -654,6 +734,7 @@ void serialCommands() {
     stopMotors();
     trimSave(false);
     if (state == ST_TEST) testFinish("x 로 멈춤");
+    else if (state == ST_TRACE) traceFinish("x 로 멈춤");
     else { if (state == ST_FOLLOW || state == ST_ELEVATOR) doneRev = planRev; state = ST_IDLE; }
     Serial.println("[멈춤]");
   }
@@ -813,13 +894,19 @@ void setup() {
 
 void loop() {
   serialCommands();
-  if (WiFi.status() != WL_CONNECTED && state != ST_FOLLOW && state != ST_TEST) { stopMotors(); led(true); delay(200); return; }
+  if (WiFi.status() != WL_CONNECTED && state != ST_FOLLOW && state != ST_TEST && state != ST_TRACE) { stopMotors(); led(true); delay(200); return; }
 
   switch (state) {
     case ST_IDLE:
     case ST_ERROR:
       stopMotors();
       led(state == ST_ERROR ? (millis() / 200) % 2 : (millis() / 1000) % 2);
+      if (buttonClicked()) {                    // 대기 중 BOOT 버튼 = 선 따라가기 시험 (2초 뒤 출발, USB 없이도)
+        Serial.println("[선 시험] BOOT 버튼 — 2초 뒤 출발");
+        for (int i = 0; i < 10; i++) { led(i % 2); delay(200); }
+        traceStart();
+        break;
+      }
       if (millis() - lastPoll > POLL_IDLE_MS) {
         lastPoll = millis();
         if (pollDrive()) {
@@ -848,6 +935,11 @@ void loop() {
     case ST_ELEVATOR:
       led((millis() / 500) % 2);
       elevatorStep();
+      break;
+    case ST_TRACE:
+      led(true);
+      if (buttonClicked()) { traceFinish("BOOT 버튼으로 멈춤"); break; }
+      traceStep();
       break;
     case ST_TEST:
       led((millis() / 100) % 2);

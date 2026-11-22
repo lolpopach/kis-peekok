@@ -213,6 +213,27 @@ int main(int argc, char** argv) {
   CHECK(state == ST_IDLE, "표시를 너무 오래 못 만나면 멈춤 (선 벗어나 계속 달리지 않게)");
   testRoute = TEST_ROUTE;
 
+  printf("== 선 따라가기 시험 (t) ==\n");
+  setTrim(0);
+  fake_pins[PIN_FRONT_LEFT] = LOW; fake_pins[PIN_FRONT_RIGHT] = LOW;
+  traceStart();
+  for (int i = 0; i < 80; i++) { fake_millis += 10; traceStep(); }            // 0.8초 가운데
+  fake_pins[PIN_FRONT_LEFT] = HIGH;
+  for (int i = 0; i < 10; i++) { fake_millis += 10; traceStep(); }            // 0.1초 왼쪽 바로잡기
+  fake_pins[PIN_FRONT_LEFT] = LOW; fake_pins[PIN_FRONT_RIGHT] = HIGH;
+  for (int i = 0; i < 10; i++) { fake_millis += 10; traceStep(); }            // 0.1초 오른쪽
+  fake_pins[PIN_FRONT_RIGHT] = LOW;
+  CHECK(state == ST_TRACE && tracePct(0) >= 75 && tracePct(1) >= 8 && tracePct(2) >= 8, "가운데·왼쪽·오른쪽 시간 비율");
+  CHECK(traceSwitches == 1 && traceLongest >= 90 && traceLongest <= 110, "지그재그 1번 · 가장 긴 꺾기 약 0.1초");
+  fake_pins[PIN_FRONT_LEFT] = HIGH;
+  for (int i = 0; i < TRACE_LOST_MS / 10 + 5 && state == ST_TRACE; i++) { fake_millis += 10; traceStep(); }
+  CHECK(state == ST_IDLE, "한쪽 꺾기가 TRACE_LOST_MS 넘으면 선을 놓친 것으로 멈춤");
+  fake_pins[PIN_FRONT_LEFT] = LOW;
+  traceStart();
+  for (int i = 0; i < TRACE_MS / 50 + 5 && state == ST_TRACE; i++) { fake_millis += 50; traceStep(); }
+  CHECK(state == ST_IDLE, "TRACE_MS 가 지나면 멈춤");
+  setTrim(0);
+
   printf("== WiFi 이름 비교 (iPhone ’ 따옴표·대소문자·띄어쓰기) ==\n");
   {
     char a[48], b[48];
