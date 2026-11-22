@@ -86,6 +86,7 @@
 #define STEER_RAMP_MS    600    // STEER_MIN → MAX 까지 걸리는 시간 (곡선에서 선을 놓치면 줄이기, 지그재그가 크면 늘리기)
 #define COUNTER_RATIO    0.0    // 흔들림 줄이기: 바로잡기가 끝나면 그 시간의 이 비율만큼 반대로 살짝(STEER_MIN) 꺾음 (0 = 안 함)
 #define COUNTER_MAX_MS   150    // 반대로 꺾는 최대 시간
+#define RECOVER_MAX_MS   1500   // 선 되찾기: 앞 센서가 놓치고 뒤 센서가 본 쪽으로 꺾을 때, 이 시간(바퀴 돌린 시간) 안에 앞 센서가 선을 못 잡으면 그만둠
 #define LOST_LINE_MS     3000   // 서버 주행: 다음 교차로가 예상 시간의 2배 + 이 시간이 지나도 안 나오면 멈춤
 
 // ── 좌우 모터 힘 차이 보정 ──

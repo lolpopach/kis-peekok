@@ -264,6 +264,23 @@ int main(int argc, char** argv) {
   CHECK(junctionSeen(true), "그 다음 선 = 다음 교차로");
   fake_analog = 0;
 
+  printf("== 선 되찾기: 뒤 센서는 방향만, 다시 잡는 건 앞 센서 ==\n");
+  fake_pins[PIN_FRONT_LEFT] = LOW; fake_pins[PIN_FRONT_RIGHT] = LOW;
+  followReset();
+  fake_analog = 1000;                           // 앞 둘 다 놓침 + 뒤 오른쪽이 선을 봄
+  fake_millis += 10; lineFollow(SPEED_PWM, true);
+  CHECK(recoverDir == 1 && lastLeftPwm > lastRightPwm, "뒤 오른쪽 쪽으로 크게 꺾기 시작");
+  fake_analog = 0;                              // 뒤 센서가 선을 벗어남
+  fake_millis += 10; lineFollow(SPEED_PWM, true);
+  CHECK(recoverDir == 1 && lastLeftPwm > lastRightPwm, "뒤 센서가 벗어나도 앞 센서가 잡을 때까지 계속 꺾기");
+  fake_pins[PIN_FRONT_RIGHT] = HIGH;            // 앞 오른쪽이 선을 다시 잡음
+  fake_millis += 10; lineFollow(SPEED_PWM, true);
+  CHECK(recoverDir == 0 && lastLeftPwm - lastRightPwm == 2 * STEER_MIN, "앞 센서가 잡으면 평소 따라가기로");
+  fake_pins[PIN_FRONT_RIGHT] = LOW;
+  followReset(); fake_analog = 1000; fake_millis += 10; lineFollow(SPEED_PWM, false);
+  CHECK(recoverDir == 0 && lastLeftPwm == lastRightPwm, "분기 시험·서버 주행(sideRecover 끔)에서는 뒤 센서로 꺾지 않음");
+  fake_analog = 0;
+
   printf("== 분기는 앞 → 뒤 순서로 ==\n");
   junctionArmed = true; junctionIgnoreMove = 0; junctionSince = 0; frontRSeenMove = 0;
   fake_analog = 1000;                          // 앞 오른쪽이 본 적 없이 뒤 오른쪽만
