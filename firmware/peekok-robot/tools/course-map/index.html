@@ -157,6 +157,11 @@ function drawTargets(s) {
 const es = new EventSource('/events');
 es.onmessage = (m) => {
   const s = JSON.parse(m.data);
+  if (!s.targets) {   // 예전 bridge.py 가 켜져 있음 → 새 기능 데이터가 없음
+    $('conn').innerHTML = '<b>●</b> 지도 프로그램이 예전 버전이에요 — 터미널에서 Ctrl+C 로 끄고 다시 실행해 주세요';
+    $('conn').className = 'conn';
+    return;
+  }
   drawMap(s);
   drawTargets(s);
   $('plan').setAttribute('points', (s.plan || []).map((p) => p.join(',')).join(' '));
