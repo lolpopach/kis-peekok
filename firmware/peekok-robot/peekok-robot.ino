@@ -214,6 +214,10 @@
 struct Flicker { bool last; unsigned long t[4]; int i; bool noisy; };
 Flicker flkL = {false, {0, 0, 0, 0}, 0, false}, flkR = {false, {0, 0, 0, 0}, 0, false};
 
+// 멈춤 요청: 회전·유턴·뒤로 가기처럼 오래 걸리는 동작 중에도 x(또는 무선 연결 끊김)를 받으면 바로 멈춤
+volatile bool abortMotion = false;
+bool telnetWasConnected = false;
+
 // ───────── 무선 시리얼 · 무선 업로드 ─────────
 // 시리얼 출력은 USB 와 WiFi(TCP 2323, run 이 peekok-robot.local 로 연결) 양쪽으로, 입력은 둘 중 들어온 쪽에서.
 // 무선 업로드(ArduinoOTA): 호스트 이름 peekok-robot, 비밀번호 OTA_PASS(없으면 ROBOT_KEY).
@@ -230,6 +234,17 @@ class DualOut : public Print {
   size_t write(const uint8_t* b, size_t n) override { Serial.write(b, n); if (telnet && telnet.connected()) telnet.write(b, n); return n; }
 };
 DualOut Out;
+struct Abort {
+  // 오래 걸리는 동작의 반복 조건에서 부름: x 를 받거나 무선 연결이 끊기면 true
+  static bool poll() {
+    if (abortMotion) return true;
+    if (telnetWasConnected && !(telnet && telnet.connected())) { abortMotion = true; Serial.println("[무선] 연결 끊김 → 멈춤"); return true; }
+    while (telnet && telnet.connected() && telnet.available()) { int c = telnet.read(); if (c == 'x' || c == 'X') { abortMotion = true; break; } }
+    while (Serial.available()) { int c = Serial.read(); if (c == 'x' || c == 'X') { abortMotion = true; break; } }
+    if (abortMotion) Serial.println("[멈춤] x 받음 — 하던 동작 멈춤");
+    return abortMotion;
+  }
+};
 // 입력: 함수 대신 구조체 안에 둠 (Arduino 가 만드는 자동 선언이 Node 등 정의보다 앞서지 않게)
 struct In {
   static int available() { if (telnet && telnet.connected() && telnet.available()) return telnet.available(); return Serial.available(); }
@@ -237,6 +252,7 @@ struct In {
 };
 #else
 #define Out Serial
+struct Abort { static bool poll() { return abortMotion; } };
 struct In {
   static int available() { return Serial.available(); }
   static int read() { return Serial.read(); }
@@ -646,8 +662,9 @@ bool junctionSeen(bool allowed) {
   if (sFrontR()) frontRSeenMove = moveMs + 1;
   bool rl = rearL(), rr = rearR();
   // 진짜 분기는 앞 센서가 먼저 지나가고 뒤 센서가 닿음 → 뒤 센서만 깜빡이는 잡음은 무시
-  bool l = rl && frontLSeenMove && moveMs + 1 - frontLSeenMove <= BRANCH_PAIR_MS;
-  bool r = rr && frontRSeenMove && moveMs + 1 - frontRSeenMove <= BRANCH_PAIR_MS;
+  // BRANCH_PAIR_MS 가 0 이면 뒤 센서만으로 분기 판단 (앞 센서는 직진에만)
+  bool l = rl && (BRANCH_PAIR_MS == 0 || (frontLSeenMove && moveMs + 1 - frontLSeenMove <= (unsigned long)BRANCH_PAIR_MS));
+  bool r = rr && (BRANCH_PAIR_MS == 0 || (frontRSeenMove && moveMs + 1 - frontRSeenMove <= (unsigned long)BRANCH_PAIR_MS));
   if (!junctionArmed) {               // 옆 센서 둘 다 바닥을 (움직이며) 0.1초 보면 다시 셀 준비
     if (!l && !r) { if (!sideClearSince) sideClearSince = moveMs + 1; if (moveMs + 1 - sideClearSince >= 100) junctionArmed = true; }
     else sideClearSince = 0;
@@ -788,7 +805,7 @@ bool spinToLine(int dir, unsigned long minMs) {
   bool sawFloor = false;
   int phase = 0;                 // 0 새 선 찾기 · 1 앞 센서가 선 위 · 2 선이 두 센서 사이
   unsigned long passedAt = 0;
-  while (moveMs - m0 < TURN_TIMEOUT_MS && millis() - t0 < TURN_TIMEOUT_MS * 12UL) {
+  while (!Abort::poll() && moveMs - m0 < TURN_TIMEOUT_MS && millis() - t0 < TURN_TIMEOUT_MS * 12UL) {
     spinDrive(dir);
     bool lead = dir > 0 ? sFrontR() : sFrontL();
     bool trail = dir > 0 ? sFrontL() : sFrontR();
@@ -815,7 +832,7 @@ bool arcToLine(int dir, unsigned long ignoreMs = 0) {
   moveLastAt = 0;
   bool leadSeen = false;
   unsigned long passedAt = 0;
-  while (moveMs - m0 < ARC_TIMEOUT_MS + ignoreMs && millis() - t0 < (ARC_TIMEOUT_MS + ignoreMs) * 12UL) {
+  while (!Abort::poll() && moveMs - m0 < ARC_TIMEOUT_MS + ignoreMs && millis() - t0 < (ARC_TIMEOUT_MS + ignoreMs) * 12UL) {
     driveP(dir > 0 ? ARC_PWM : ARC_INNER_PWM, dir > 0 ? ARC_INNER_PWM : ARC_PWM);
     logDrive(dir > 0 ? "우회전" : "좌회전");
     bool lead = dir > 0 ? sFrontR() : sFrontL();
@@ -851,7 +868,7 @@ bool spinUturn(int dir, unsigned long ignoreMs) {
   bool leadSeen = false;
   unsigned long passedAt = 0;
   bool ok = false;
-  while (moveMs - m0 < ARC_TIMEOUT_MS + ignoreMs && millis() - t0 < (ARC_TIMEOUT_MS + ignoreMs) * 3UL) {
+  while (!Abort::poll() && moveMs - m0 < ARC_TIMEOUT_MS + ignoreMs && millis() - t0 < (ARC_TIMEOUT_MS + ignoreMs) * 3UL) {
     // 처음과 그 뒤 1초마다 SPIN_KICK_MS 만 세게 밀어 줌 → 힘이 빠져 멈추지 않고 선을 찾을 때까지 계속 돎
     int pwm = ((millis() - t0) % 1000UL < (unsigned long)SPIN_KICK_MS) ? SPIN_KICK_PWM : UTURN_PWM;
     driveP(dir * pwm, -dir * pwm);
@@ -875,7 +892,7 @@ bool spinUturn(int dir, unsigned long ignoreMs) {
 void forwardFor(unsigned long ms) {
   unsigned long m0 = moveMs, t0 = millis();
   moveLastAt = 0;
-  while (moveMs - m0 < ms && millis() - t0 < ms * 12UL + 1000) { driveP(speedPwm, speedPwm); yield(); }
+  while (!Abort::poll() && moveMs - m0 < ms && millis() - t0 < ms * 12UL + 1000) { driveP(speedPwm, speedPwm); yield(); }
   stopMotors();
 }
 // 회전 동작 t('S' 직진 · 'L' 좌 · 'R' 우 · 'U' 유턴)을 하고 지금 방향을 want 로 바꾼다
@@ -999,7 +1016,7 @@ bool backToLine() {
   struct Restore { int& d; int v; ~Restore() { d = v; } } restore{speedDuty, savedDuty};
   revSide = 0; revSince = millis();
   bool cleared = false, seenL = PIN_SENSOR_LEFT < 0, seenR = PIN_SENSOR_RIGHT < 0;
-  while (moveMs - m0 < BACK_TIMEOUT_MS && millis() - t0 < BACK_TIMEOUT_MS * 12UL) {
+  while (!Abort::poll() && moveMs - m0 < BACK_TIMEOUT_MS && millis() - t0 < BACK_TIMEOUT_MS * 12UL) {
     reverseFollow(BACK_PWM);
     bool l = sLeft(), r = sRight();
     logDrive("뒤로");
@@ -1010,7 +1027,7 @@ bool backToLine() {
       if (seenL && seenR) {
         Out.println("[코스] 뒤로 가다 뒤 센서가 본선에 닿음");
         unsigned long m1 = moveMs;
-        while (moveMs - m1 < BACK_EXTRA_MS) { reverseFollow(BACK_PWM); yield(); }
+        while (!Abort::poll() && moveMs - m1 < BACK_EXTRA_MS) { reverseFollow(BACK_PWM); yield(); }
         stopMotors();
         delay(200);
         return true;
@@ -1072,7 +1089,7 @@ void testEvent() {
     if (uturnBackMs > 0) {
       int savedDuty = speedDuty; speedDuty = 100;
       unsigned long m1 = moveMs, t1 = millis(); moveLastAt = 0;
-      while (moveMs - m1 < (unsigned long)uturnBackMs && millis() - t1 < (unsigned long)uturnBackMs * 12UL + 1000) { driveP(-BACK_PWM, -BACK_PWM); yield(); }
+      while (!Abort::poll() && moveMs - m1 < (unsigned long)uturnBackMs && millis() - t1 < (unsigned long)uturnBackMs * 12UL + 1000) { driveP(-BACK_PWM, -BACK_PWM); yield(); }
       stopMotors(); speedDuty = savedDuty; delay(150);
     }
     int dir = UTURN_DIR == 'R' ? 1 : -1;
@@ -1632,10 +1649,16 @@ void wirelessTick() {
     Out.printf("[무선] 준비됨 — IP %s · 이름 peekok-robot.local · 시리얼 2323 · 무선 업로드 가능\n", WiFi.localIP().toString().c_str());
   }
   ArduinoOTA.handle();
+  bool conn = telnet && telnet.connected();
+  if (telnetWasConnected && !conn) {
+    telnetWasConnected = false;
+    if (state == ST_TEST || state == ST_TRACE) { abortMotion = true; Serial.println("[무선] 연결 끊김 → 시험 멈춤"); }
+  }
   if (telnetServer.hasClient()) {
     if (telnet && telnet.connected()) telnet.stop();
     telnet = telnetServer.available();
     telnet.setNoDelay(true);
+    telnetWasConnected = true;
     Out.printf("[무선] 시리얼 연결됨 (%s)\n", telnet.remoteIP().toString().c_str());
   }
 #endif
@@ -1643,6 +1666,13 @@ void wirelessTick() {
 
 void loop() {
   wirelessTick();
+  if (abortMotion) {                 // 멈춤 요청 처리 (오래 걸리는 동작에서 빠져나온 뒤)
+    abortMotion = false;
+    stopMotors();
+    if (state == ST_TEST) testFinish("멈춤 요청");
+    else if (state == ST_TRACE) traceFinish("멈춤 요청");
+    else if (state == ST_FOLLOW || state == ST_ELEVATOR) { doneRev = planRev; state = ST_IDLE; }
+  }
   serialCommands();
   wifiTick();
   // WiFi·서버가 아직(또는 끊김)이면 대기 중에는 서버 확인만 건너뜀 — 시리얼 시험과 BOOT 버튼 선 시험은 그대로 됨
