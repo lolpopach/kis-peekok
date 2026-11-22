@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>피콕 코스 지도</title>
+<style>
+  :root { --ink: #111; --robot: #e5484d; --muted: #6b6b6b; --line: #e6e6e6; --ok: #2f9e44; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #fff; color: var(--ink); font-family: -apple-system, "Apple SD Gothic Neo", system-ui, sans-serif; }
+  main { display: grid; grid-template-columns: 1fr 340px; height: 100vh; }
+  .map { position: relative; padding: 16px; display: flex; flex-direction: column; min-width: 0; }
+  svg { flex: 1; width: 100%; min-height: 0; }
+  .road { stroke: var(--ink); stroke-width: 14; stroke-linecap: square; }
+  .trail { fill: none; stroke: var(--robot); stroke-width: 3; stroke-dasharray: 6 8; opacity: .5; }
+  .label { font-size: 22px; fill: var(--muted); }
+  #robot { transition: transform .1s linear; }
+  #robot.turning circle { animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .55; } }
+  .status { display: flex; gap: 24px; align-items: baseline; flex-wrap: wrap; }
+  .where { font-size: 28px; font-weight: 700; }
+  .what { font-size: 18px; color: var(--muted); }
+  aside { border-left: 1px solid var(--line); padding: 16px; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+  .conn { font-size: 14px; color: var(--muted); }
+  .conn b { color: var(--robot); }
+  .conn.on b { color: var(--ok); }
+  .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  button { font: inherit; font-size: 16px; padding: 12px; border: 1px solid var(--ink); background: #fff; border-radius: 8px; cursor: pointer; }
+  button.main { background: var(--ink); color: #fff; }
+  button.stop { background: var(--robot); border-color: var(--robot); color: #fff; }
+  form { display: flex; gap: 8px; }
+  input { flex: 1; font: inherit; padding: 10px; border: 1px solid #ccc; border-radius: 8px; min-width: 0; }
+  h2 { font-size: 14px; margin: 4px 0 0; color: var(--muted); font-weight: 600; }
+  ol, pre { margin: 0; font-size: 13px; overflow: auto; }
+  ol { padding-left: 18px; max-height: 30vh; }
+  ol li { margin: 2px 0; }
+  ol li span { color: var(--muted); margin-right: 6px; }
+  pre { flex: 1; background: #fafafa; border: 1px solid var(--line); border-radius: 8px; padding: 8px; white-space: pre-wrap; min-height: 80px; }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; height: auto; } aside { border-left: 0; border-top: 1px solid var(--line); } svg { height: 60vh; } }
+</style>
+</head>
+<body>
+<main>
+  <section class="map">
+    <div class="status"><div class="where" id="where">—</div><div class="what" id="what"></div></div>
+    <svg viewBox="20 100 1110 720" preserveAspectRatio="xMidYMid meet" aria-label="코스 지도">
+      <g id="roads"></g>
+      <g id="labels"></g>
+      <polyline id="trail" class="trail"></polyline>
+      <g id="robot">
+        <circle r="24" fill="var(--robot)"></circle>
+        <path d="M 30 0 L 8 -14 L 8 14 Z" fill="#fff" stroke="var(--robot)" stroke-width="3"></path>
+      </g>
+    </svg>
+  </section>
+  <aside>
+    <div class="conn" id="conn">연결 확인 중…</div>
+    <div class="btns">
+      <button class="main" data-cmd="j">시작 (자동 주행)</button>
+      <button class="stop" data-cmd="x">멈춤</button>
+      <button data-cmd="reset">위치를 출발점으로</button>
+      <button data-cmd="flip">지도 위아래 뒤집기</button>
+    </div>
+    <form id="send"><input id="text" placeholder="로봇에 보낼 명령 (예: P, PuPwm=80)" autocomplete="off"><button>보내기</button></form>
+    <h2>위치 기록</h2>
+    <ol id="events"></ol>
+    <h2>로봇 기록</h2>
+    <pre id="log"></pre>
+  </aside>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const NS = 'http://www.w3.org/2000/svg';
+let mapKey = '';
+
+function el(tag, attrs) { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; }
+
+function drawMap(s) {
+  const key = JSON.stringify(s.lines) + s.flip;
+  if (key === mapKey) return;
+  mapKey = key;
+  const roads = $('roads'), labels = $('labels');
+  roads.replaceChildren(); labels.replaceChildren();
+  for (const [x1, y1, x2, y2] of [...s.lines, ...s.caps]) roads.append(el('line', { x1, y1, x2, y2, class: 'road' }));
+  for (const l of s.labels) {
+    if (l.kind === 'J') continue;
+    const t = el('text', { x: l.x, y: l.y + (l.kind === 'B' ? (l.y < 455 ? -30 : 50) : 85), class: 'label', 'text-anchor': 'middle' });
+    t.textContent = l.name; labels.append(t);
+  }
+  for (const l of s.labels.filter((l) => l.kind === 'J')) {
+    const below = s.labels.find((b) => b.name === l.name + ' 끝').y < 455;
+    const t = el('text', { x: l.x + 14, y: l.y + (below ? 40 : -22), class: 'label' });
+    t.textContent = l.name; labels.append(t);
+  }
+}
+
+const es = new EventSource('/events');
+es.onmessage = (m) => {
+  const s = JSON.parse(m.data);
+  drawMap(s);
+  const r = $('robot');
+  r.style.transform = `translate(${s.x}px, ${s.y}px) rotate(${s.angle}deg)`;
+  r.classList.toggle('turning', s.mode === 'turning' || s.mode === 'junction');
+  $('trail').setAttribute('points', [...s.trail, [s.x, s.y]].map((p) => p.join(',')).join(' '));
+  $('where').textContent = s.where;
+  $('what').textContent = s.status + ` · 추정 속도 ${s.speed}px/초`;
+  const c = $('conn');
+  c.className = 'conn' + (s.connected ? ' on' : '');
+  c.innerHTML = s.demo ? '<b>●</b> 데모 모드 (로봇 없이 가짜 기록)' : s.connected ? `<b>●</b> 로봇 연결됨 (${s.host})` : `<b>●</b> 로봇 연결 안 됨 (${s.host}) — 같은 WiFi 인지 확인`;
+  $('events').replaceChildren(...s.events.slice().reverse().map((e) => { const li = document.createElement('li'); li.innerHTML = `<span>${e.t}</span>`; li.append(e.msg); return li; }));
+  const log = $('log'), atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 4;
+  log.textContent = s.log.join('\n');
+  if (atBottom) log.scrollTop = log.scrollHeight;
+};
+es.onerror = () => { $('conn').innerHTML = '<b>●</b> 지도 프로그램(bridge.py)과 연결이 끊김'; $('conn').className = 'conn'; };
+
+const send = (cmd) => fetch('/cmd', { method: 'POST', body: cmd });
+document.querySelectorAll('[data-cmd]').forEach((b) => b.addEventListener('click', () => send(b.dataset.cmd)));
+$('send').addEventListener('submit', (e) => { e.preventDefault(); const v = $('text').value.trim(); if (v) send(v); $('text').value = ''; });
+</script>
+</body>
+</html>
