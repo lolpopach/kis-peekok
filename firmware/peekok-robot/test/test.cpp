@@ -21,6 +21,7 @@ String readFile(const char* p) { std::ifstream f(p); std::stringstream ss; ss <<
 int main(int argc, char** argv) {
   std::string dir = argc > 1 ? argv[1] : "samples";
   fake_pins[D3] = HIGH;   // FLASH 버튼은 평소 HIGH (풀업)
+  speedDuty = 100;        // 시험은 끊어 가기 없이 (끊어 가기는 아래에서 따로)
   printf("== 서버 응답 해석 ==\n");
   CHECK(parseDrive(readFile((dir + "/idle.txt").c_str())), "대기 응답 읽기");
   CHECK(serverMode == "idle" && planLen == 0, "대기: 모드 idle, 노드 0");
@@ -180,7 +181,7 @@ int main(int argc, char** argv) {
   setTrim(0);
 
   printf("== 교차로: 옆 센서 ==\n");
-  junctionIgnoreUntil = 0; junctionSince = 0;
+  junctionIgnoreMove = 0; moveMs = 0; junctionSince = 0;
   CHECK(!junctionSeen(true), "옆 센서가 바닥이면 교차로 아님");
   fake_pins[PIN_FRONT_LEFT] = HIGH; fake_pins[PIN_FRONT_RIGHT] = HIGH; fake_millis += 100;
   CHECK(!junctionSeen(true), "앞 센서만 검정이면 아직 교차로 아님 (옆 센서가 볼 때)");
@@ -191,7 +192,7 @@ int main(int argc, char** argv) {
   fake_millis += JUNCTION_MS;
   CHECK(junctionSeen(true), "JUNCTION_MS 이어지면 교차로");
   CHECK(!junctionSeen(false), "서버 주행에서 예상 시간 전(문 닫힘)이면 무시");
-  junctionIgnoreUntil = fake_millis + 100; junctionSince = 0;
+  junctionIgnoreMove = moveMs + 100; junctionSince = 0;
   fake_millis += JUNCTION_MS + 10;
   CHECK(!junctionSeen(true), "회전 직후(JUNCTION_COOLDOWN_MS)는 무시");
   fake_analog = 0;
@@ -245,6 +246,29 @@ int main(int argc, char** argv) {
   for (int i = 0; i < TRACE_MS / 50 + 5 && state == ST_TRACE; i++) { fake_millis += 50; traceStep(); }
   CHECK(state == ST_IDLE, "TRACE_MS 가 지나면 멈춤");
   setTrim(0);
+
+  printf("== 분기 시험 (j): 옆에 선이 보인 쪽으로 ==\n");
+  testRoute = "??";
+  testStart();
+  junctionL = false; junctionR = true;
+  testEvent();   // R 로 돌다가(가짜 센서는 바닥) 선을 못 찾음 → 멈춤. 어느 쪽으로 돌기로 했는지만 확인
+  CHECK(routeIdx == 1 && state == ST_IDLE, "오른쪽 옆 센서 → 우회전 시도");
+  testStart();
+  junctionL = true; junctionR = true;
+  testEvent();
+  CHECK(state == ST_IDLE, "양쪽 옆 센서 → 멈춤");
+  testRoute = TEST_ROUTE;
+
+  printf("== 느리게 달리기 (끊어 가기) ==\n");
+  speedDuty = 30; fake_millis = 1000000; moveLastAt = 0;
+  { unsigned long m0 = moveMs; int on = 0;
+    for (int i = 0; i < 300; i++) { fake_millis += 1; driveP(500, 500); if (fake_pwm[PIN_LEFT_A] > 0) on++; }
+    CHECK(on >= 80 && on <= 100, "150ms 주기 중 약 30% 만 바퀴를 돌림");
+    CHECK(moveMs - m0 >= 80 && moveMs - m0 <= 100, "움직인 시간(moveMs)은 돌린 시간만 셈");
+    CHECK(lastLeftPwm == 500, "멈춘 동안에도 기록은 정한 세기"); }
+  { unsigned long m0 = moveMs, t0 = fake_millis; forwardFor(200);
+    CHECK(moveMs - m0 >= 200 && fake_millis - t0 >= 600, "회전 전 전진 200ms = 돌린 시간 200ms (실제로는 약 3배 걸림)"); }
+  speedDuty = 100;
 
   printf("== WiFi 이름 비교 (iPhone ’ 따옴표·대소문자·띄어쓰기) ==\n");
   {
