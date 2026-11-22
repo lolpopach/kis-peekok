@@ -166,6 +166,27 @@
 #define OBSTACLE_STOP_CM 20
 #define OBSTACLE_CLEAR_CM 30
 #endif
+#ifndef DECIDE_MS
+#define DECIDE_MS 300
+#endif
+#ifndef UTURN_PWM
+#define UTURN_PWM (PWM_MAX * 100 / 255)
+#endif
+#ifndef SPIN_KICK_PWM
+#define SPIN_KICK_PWM (PWM_MAX * 150 / 255)
+#endif
+#ifndef SPIN_KICK_MS
+#define SPIN_KICK_MS 120
+#endif
+#ifndef SPIN_BRAKE_MS
+#define SPIN_BRAKE_MS 50
+#endif
+#ifndef UTURN_IGNORE_MS
+#define UTURN_IGNORE_MS 1200
+#endif
+#ifndef UTURN_DIR
+#define UTURN_DIR 'L'
+#endif
 #ifndef TEST_ROUTE
 #define TEST_ROUTE "RURLE"
 #endif
@@ -221,7 +242,10 @@ int turnForwardMs = TURN_FORWARD_MS;   // 교차로 감지 뒤 더 가는 시간
 // 뒤 센서 깜빡임 거르기 상태 (steadyRead)
 struct Flicker { bool last; unsigned long t[4]; int i; bool noisy; };
 Flicker flkL = {false, {0, 0, 0, 0}, 0, false}, flkR = {false, {0, 0, 0, 0}, 0, false};
-bool junctionL = false, junctionR = false;   // 이번 교차로에서 선을 본 옆 센서
+bool junctionL = false, junctionR = false;
+unsigned long decideStart = 0;   // 분기/T자 결정 대기 시작 (moveMs+1, 0 = 대기 아님)
+bool autoAfterU = false;         // 자동: 방금 유턴했으면 다음 T자는 본선
+char autoLastTurn = 'R';         // 자동: 마지막으로 들어간 분기 쪽   // 이번 교차로에서 선을 본 옆 센서
 bool junctionArmed = true;       // 회전 뒤에는 옆 센서가 방금 지난 선(제자리 회전이라 옆 센서 밑에 남음)을 벗어나 바닥을 본 뒤에야 다시 교차로를 셈
 unsigned long sideClearSince = 0;
 unsigned long frontLSeenMove = 0, frontRSeenMove = 0;   // 앞 왼쪽·오른쪽이 마지막으로 검정을 본 때(움직인 시간) — 분기는 앞 → 뒤 순서로 지나감
@@ -525,18 +549,31 @@ bool junctionSeen(bool allowed) {
   if (sFrontR()) frontRSeenMove = moveMs + 1;
   bool rl = rearL(), rr = rearR();
   // 진짜 분기는 앞 센서가 먼저 지나가고 뒤 센서가 닿음 → 뒤 센서만 깜빡이는 잡음은 무시
-  bool l = rl && frontLSeenMove && moveMs + 1 - frontLSeenMove <= BRANCH_PAIR_MS;
-  bool r = rr && frontRSeenMove && moveMs + 1 - frontRSeenMove <= BRANCH_PAIR_MS;
+  // BRANCH_PAIR_MS 0 = 뒤 센서만으로 분기 판단 (앞 센서는 직진에만)
+  bool l = rl && (BRANCH_PAIR_MS == 0 || (frontLSeenMove && moveMs + 1 - frontLSeenMove <= (unsigned long)BRANCH_PAIR_MS));
+  bool r = rr && (BRANCH_PAIR_MS == 0 || (frontRSeenMove && moveMs + 1 - frontRSeenMove <= (unsigned long)BRANCH_PAIR_MS));
   if (!junctionArmed) {               // 옆 센서 둘 다 바닥을 (움직이며) 0.1초 보면 다시 셀 준비
     if (!l && !r) { if (!sideClearSince) sideClearSince = moveMs + 1; if (moveMs + 1 - sideClearSince >= 100) junctionArmed = true; }
     else sideClearSince = 0;
     junctionSince = 0;
     return false;
   }
-  if (!allowed || (long)(moveMs - junctionIgnoreMove) < 0 || !(l || r)) { junctionSince = 0; return false; }
-  if (!junctionSince) { junctionSince = now; junctionL = junctionR = false; }
-  junctionL = junctionL || l; junctionR = junctionR || r;   // 어느 쪽에 선이 있었는지 (분기 시험용)
-  return now - junctionSince >= JUNCTION_MS;
+  if (!allowed || (long)(moveMs - junctionIgnoreMove) < 0) { junctionSince = 0; decideStart = 0; return false; }
+  // ① 후보: 뒤 센서 한쪽이 JUNCTION_MS 넘게 계속 선을 봄
+  if (!decideStart) {
+    if (!(l || r)) { junctionSince = 0; return false; }
+    if (!junctionSince) junctionSince = now;
+    if (now - junctionSince < (unsigned long)JUNCTION_MS) return false;
+    decideStart = moveMs + 1;
+    junctionL = l; junctionR = r;
+  }
+  // ② 결정 대기: DECIDE_MS(바퀴 돌린 시간) 동안 반대쪽 뒤 센서도 보는지 지켜봄 (T자에 비스듬히 들어와도 양쪽을 다 봄)
+  junctionL = junctionL || l; junctionR = junctionR || r;
+  if (moveMs + 1 - decideStart < (unsigned long)DECIDE_MS) return false;
+  // ③ 결정: 양쪽 → T자, 한쪽 → 그쪽 분기
+  Out.printf("[판단] %s\n", junctionL && junctionR ? "뒤 센서 양쪽 → T자" : junctionL ? "뒤 왼쪽만 → 왼쪽 분기" : "뒤 오른쪽만 → 오른쪽 분기");
+  decideStart = 0; junctionSince = 0;
+  return true;
 }
 void logDrive(const char* tag) {
   if (!verbose || millis() - lastLog < 100) return;
@@ -703,6 +740,35 @@ bool arcToLine(int dir) {
   stopMotors();
   return leadSeen;               // 새 선에 닿기라도 했으면 이어서 따라가 봄
 }
+// 제자리 유턴: 두 바퀴를 반대로, 끊지 않고. 두 바퀴가 다 도니 빠르므로 처음만 SPIN_KICK_PWM 으로 밀고(1초마다 다시)
+// 그다음 UTURN_PWM 으로 천천히. 처음 ignoreMs 는 T자 가로선 무시 → 도는 쪽 앞 센서가 왔던 선에 닿고 지나간 뒤
+// 반대쪽 앞 센서가 닿아야만 멈춤 → 멈출 때 SPIN_BRAKE_MS 반대로 살짝(관성 막기)
+bool spinUturn(int dir, unsigned long ignoreMs) {
+  int savedDuty = speedDuty;
+  speedDuty = 100;
+  unsigned long m0 = moveMs, t0 = millis();
+  moveLastAt = 0;
+  bool leadSeen = false, ok = false;
+  unsigned long passedAt = 0;
+  while (!Abort::poll() && moveMs - m0 < ARC_TIMEOUT_MS + ignoreMs && millis() - t0 < (ARC_TIMEOUT_MS + ignoreMs) * 3UL) {
+    int pwm = ((millis() - t0) % 1000UL < (unsigned long)SPIN_KICK_MS) ? SPIN_KICK_PWM : UTURN_PWM;
+    driveP(dir * pwm, -dir * pwm);
+    logDrive("유턴");
+    bool lead = dir > 0 ? sFrontR() : sFrontL();
+    bool trail = dir > 0 ? sFrontL() : sFrontR();
+    if (moveMs - m0 < ignoreMs) { yield(); continue; }
+    if (!leadSeen) { if (lead) { leadSeen = true; Out.printf("[유턴] 앞 %s 센서가 선에 닿음\n", dir > 0 ? "오른쪽" : "왼쪽"); } }
+    else if (!lead && !passedAt) passedAt = moveMs + 1;
+    else if (trail && passedAt) { ok = true; Out.printf("[유턴] 앞 %s 센서도 닿음 → 멈춤\n", dir > 0 ? "왼쪽" : "오른쪽"); break; }
+    yield();
+  }
+  if (ok && SPIN_BRAKE_MS > 0) { drive(-dir * UTURN_PWM, dir * UTURN_PWM); delay(SPIN_BRAKE_MS); }
+  stopMotors();
+  speedDuty = savedDuty;
+  delay(100);
+  if (!ok) Out.println("[유턴] 왔던 선을 끝내 못 찾음 → 멈춤");
+  return ok;
+}
 // 핸들을 고정하고 곧장 ms 동안 (교차로 통과·바퀴 축 맞추기)
 // ms 는 바퀴를 실제로 돌린 시간 기준 (끊어 가기로 느려도 같은 거리)
 void forwardFor(unsigned long ms) {
@@ -721,10 +787,15 @@ bool doTurn(char t, char want, bool atJunction) {
     if (turnForwardMs > 0) forwardFor(turnForwardMs);
     ok = arcToLine(t == 'L' ? -1 : 1);
   }
-  else if (t == 'U') { ok = spinToLine(1, UTURN_MIN_MS); }
+  else if (t == 'U') {
+    stopMotors();
+    if (atJunction) { Out.printf("[유턴] T자 — %d초 멈춘 뒤 제자리에서 돌아요\n", TURN_PAUSE_MS / 1000); delay(TURN_PAUSE_MS); }
+    ok = spinUturn(UTURN_DIR == 'R' ? 1 : -1, UTURN_IGNORE_MS);
+  }
   if (ok && want != '-') heading = want;
   junctionIgnoreMove = moveMs + JUNCTION_COOLDOWN_MS;   // 방금 지난 교차로 선을 다시 세지 않게 (움직인 시간 기준)
   junctionArmed = false; sideClearSince = 0;            // 옆 센서가 그 선을 벗어나 바닥을 본 뒤에야 다음 교차로
+  decideStart = 0;
   junctionSince = 0;
   followReset();
   Out.printf("[회전] %c → 방향 %c %s\n", t, want, ok ? "" : "(선을 못 찾음)");
@@ -807,6 +878,7 @@ void followStep() {
 const char* testRoute = TEST_ROUTE;
 void testStart() {
   routeIdx = 0;
+  autoAfterU = false; decideStart = 0;
   blocked = false; nearCount = farCount = 0;
   junctionIgnoreMove = moveMs;          // 출발 때는 시간으로 막지 않음 (출발점 가까운 분기도 셈)
   junctionArmed = false; sideClearSince = 0;   // 옆 센서가 바닥을 0.1초 보면 바로 셈
@@ -830,7 +902,13 @@ void testEvent() {
   testLastEvent = millis();
   if (!a) { testFinish("코스 글자를 다 썼어요"); return; }
   routeIdx++;
-  if (a == '!') {   // 멈춤 시험: 분기를 알아보면 돌지 않고 바로 멈추고 어느 쪽인지 알림
+  if (a == 'A') {   // 자동: 한쪽 분기 → 그쪽으로 · T자 → 유턴 · 유턴 다음 T자 = 본선 → 들어갔던 쪽으로
+    routeIdx = 0;
+    bool both = junctionL && junctionR;
+    if (both && !autoAfterU) { a = 'U'; autoAfterU = true; Out.println("[자동] T자 → 유턴"); }
+    else if (both) { a = autoLastTurn; autoAfterU = false; Out.printf("[자동] 유턴 뒤 T자 = 직진 도로 → %s (들어갔던 쪽)\n", a == 'L' ? "좌회전" : "우회전"); }
+    else { a = junctionL ? 'L' : 'R'; autoLastTurn = a; autoAfterU = false; Out.printf("[자동] %s 분기 → %s\n", a == 'L' ? "왼쪽" : "오른쪽", a == 'L' ? "좌회전" : "우회전"); }
+  } else if (a == '!') {   // 멈춤 시험: 분기를 알아보면 돌지 않고 바로 멈추고 어느 쪽인지 알림
     Out.printf("[멈춤 시험] 분기 발견 → 멈춤: %s에 선 (뒤왼쪽 %d · 뒤오른쪽 %d · 앞왼쪽 %d · 앞오른쪽 %d)\n",
                   junctionL && junctionR ? "양쪽" : junctionL ? "왼쪽" : "오른쪽", (int)sLeft(), (int)sRight(), (int)sFrontL(), (int)sFrontR());
     testFinish("분기에서 멈춤");
@@ -1033,9 +1111,9 @@ void serialCommands() {
     Out.println("[멈춤 시험] 선을 따라가다 뒤 센서(차체 양옆)가 분기를 알아보면 바로 멈춰요");
   } else if (ch == 'j') {
     if (state == ST_FOLLOW || state == ST_ELEVATOR) { Out.println("서버 주행 중이라 시험할 수 없어요 (x 로 멈춘 뒤)"); return; }
-    testRoute = "??????????";   // 분기를 만날 때마다 선이 있는 쪽으로 (최대 10번)
+    testRoute = "A";   // 자동: 한쪽 분기 → 그쪽으로 · T자 → 제자리 유턴 · 유턴 다음 T자 = 본선
     testStart();
-    Out.printf("[분기 시험] 선을 따라가다 뒤 센서가 옆에 선을 보면 그쪽으로 돌아요 (양쪽이면 멈춤) · 회전 전 전진 %dms\n", turnForwardMs);
+    Out.println("[자동] 한쪽 분기 → 그쪽으로 · T자(뒤 센서 양쪽) → 제자리 유턴 · 유턴 다음 T자 = 직진 도로 (x 로 멈춤)");
   } else if (ch == ',' || ch == '.') {
     turnForwardMs = constrain(turnForwardMs + (ch == '.' ? 20 : -20), 0, 1500);
     speedSave();

@@ -101,11 +101,18 @@
 // ── 교차로 (좌우 센서) ──
 #define JUNCTION_MS      50     // 뒤 센서가 이만큼 이어서 선을 봐야 분기로 봄 (잡음 거르기)
 #define FLICKER_MS       1000   // 뒤 센서 값이 이 시간 안에 4번 넘게 바뀌면 깜빡임(떠 있는 핀·잡음)으로 보고 무시
-#define BRANCH_PAIR_MS   600   // 뒤 센서가 선을 볼 때, 같은 쪽 앞 센서가 이 시간(바퀴 돌린 시간) 안에 검정을 봤어야 분기 (앞 → 뒤 순서)
+#define BRANCH_PAIR_MS   0      // 0 = 뒤 센서만으로 분기 판단 · 값이 있으면 같은 쪽 앞 센서가 이 시간 안에 먼저 검정을 봤어야 분기
+#define DECIDE_MS        300    // 분기/T자 결정: 첫 뒤 센서가 선을 본 뒤 반대쪽 뒤 센서를 기다리는 시간(바퀴 돌린 시간) — 양쪽이면 T자
 #define JUNCTION_COOLDOWN_MS 800 // 회전·통과 뒤 바퀴를 이만큼 돌릴 때까지(움직인 시간) 옆 센서를 무시 (방금 지난 선을 다시 세지 않게)
 #define JUNCTION_GATE    0.45   // 다음 노드까지 예상 시간의 이 비율이 지나기 전 교차로 신호는 무시 (서버 주행만)
 #define TURN_FORWARD_MS  0      // 교차로 감지 뒤 바퀴 축이 교차점에 오도록 더 가는 시간 (처음 값 — 시리얼 , . 로 ±20ms, 보드에 기억)
 #define CROSS_CLEAR_MS   250    // 교차로를 곧장 지날 때 핸들을 고정하고 가는 시간
+#define UTURN_PWM        (PWM_MAX * 100 / 255)   // 제자리 유턴 세기 — 두 바퀴가 다 도니 낮게 (돌다 멈추면 올리기)
+#define SPIN_KICK_PWM    (PWM_MAX * 150 / 255)   // 유턴 출발 세기 (1초마다 다시 밀어 줌)
+#define SPIN_KICK_MS     120    // 출발 세기 유지 시간(ms)
+#define SPIN_BRAKE_MS    50     // 유턴 멈출 때 반대로 살짝 돌리는 시간(ms)
+#define UTURN_IGNORE_MS  1200   // 유턴 처음 이 시간(바퀴 돌린 시간)은 T자 가로선 무시 — 덜 돌고 서면 늘리고, 왔던 선을 지나치면 줄이기
+#define UTURN_DIR        'L'    // 유턴 방향
 #define TURN_PAUSE_MS    1000   // 분기를 알아보면 이만큼 멈춘 뒤 회전
 #define ARC_PWM          (PWM_MAX * 100 / 255)   // 앞으로 가며 돌 때 바깥 바퀴 세기 (우회전이면 왼쪽 바퀴)
 #define ARC_INNER_PWM    0      // 앞으로 가며 돌 때 안쪽 바퀴 세기 (0 = 멈춤, 더 크게 돌려면 음수는 쓰지 말고 0)
