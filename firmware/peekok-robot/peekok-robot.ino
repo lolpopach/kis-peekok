@@ -802,7 +802,21 @@ bool spinUturn(int dir, unsigned long ignoreMs) {
     else if (trail && passedAt) { ok = true; Out.printf("[유턴] 앞 %s 센서도 닿음 → 멈춤\n", dir > 0 ? "왼쪽" : "오른쪽"); break; }
     yield();
   }
-  if (ok && SPIN_BRAKE_MS > 0) { drive(-dir * UTURN_PWM, dir * UTURN_PWM); delay(SPIN_BRAKE_MS); }
+  if (ok) {
+    // 되돌기: 두 번째 앞 센서가 선을 본 순간 반대로 돌아, 관성으로 지나쳤으면 다시 찾아 선이 앞 두 센서 사이에 오면 멈춤
+    // (두 번째 센서가 선 위면 → 벗어날 때까지 · 이미 지나쳐 바닥이면 → 다시 선을 봤다가 벗어날 때까지)
+    int back = -dir;
+    bool sawTrail = false;
+    unsigned long t1 = millis();
+    while (!Abort::poll() && millis() - t1 < 2000) {
+      int pwm = ((millis() - t1) % 1000UL < (unsigned long)SPIN_KICK_MS) ? SPIN_KICK_PWM : UTURN_PWM;
+      drive(back * pwm, -back * pwm);
+      bool trail = dir > 0 ? sFrontL() : sFrontR();
+      if (trail) sawTrail = true;
+      else if (sawTrail) { Out.println("[유턴] 반대로 돌아 선이 앞 센서 사이에 들어옴 → 직진"); break; }
+      yield();
+    }
+  }
   stopMotors();
   noDeadzone = false;
   speedDuty = savedDuty;
