@@ -141,6 +141,32 @@ int main(int argc, char** argv) {
   CHECK(lastLeftPwm == lastRightPwm, "둘 다 검정(앞에 가로선) → 꺾지 않고 곧장");
   fake_pins[PIN_FRONT_LEFT] = LOW; fake_pins[PIN_FRONT_RIGHT] = LOW;
 
+  printf("== 좌우 모터 힘 보정 ==\n");
+  setTrim(0); drive(500, 500);
+  CHECK(fake_pwm[PIN_LEFT_A] == 500 && fake_pwm[PIN_RIGHT_B] == 500, "보정 0: 양쪽 같은 세기 (오른쪽은 반대 배선이라 IN4 쪽)");
+  setTrim(0.1f); drive(500, 500);
+  CHECK(fake_pwm[PIN_LEFT_A] == 550 && fake_pwm[PIN_RIGHT_B] == 450, "보정 +0.1: 왼쪽 x1.1 · 오른쪽 x0.9");
+  CHECK(lastLeftPwm == 500 && lastRightPwm == 500, "기록은 보정 전 세기");
+  setTrim(5); CHECK(motorTrim == (float)TRIM_MAX, "보정 한계 TRIM_MAX");
+  setTrim(-5); CHECK(motorTrim == -(float)TRIM_MAX, "보정 한계 -TRIM_MAX");
+  setTrim(0);
+  fake_pins[PIN_FRONT_LEFT] = LOW; fake_pins[PIN_FRONT_RIGHT] = LOW;
+  followReset(); lineFollow(SPEED_PWM);
+  fake_pins[PIN_FRONT_LEFT] = HIGH;                    // 앞 왼쪽만 자꾸 켜짐 = 오른쪽으로 쏠림 = 왼쪽이 셈
+  for (int i = 0; i < 20; i++) { fake_millis += 10; lineFollow(SPEED_PWM); }
+  float afterShort = motorTrim;
+  CHECK(afterShort < 0 && afterShort > -0.01f, "짧은 바로잡기(왼쪽 센서) → 보정을 조금 줄임 (왼쪽을 약하게)");
+  for (int i = 0; i < 20; i++) { fake_millis += 10; lineFollow(SPEED_PWM); }   // STEER_RAMP_MS(300ms) 를 넘김
+  float atRamp = motorTrim;
+  for (int i = 0; i < 100; i++) { fake_millis += 10; lineFollow(SPEED_PWM); }
+  CHECK(motorTrim == atRamp, "꺾기가 STEER_RAMP_MS 넘게 이어지면(곡선) 배우지 않음");
+  fake_pins[PIN_FRONT_LEFT] = LOW; fake_pins[PIN_FRONT_RIGHT] = HIGH;
+  float before = motorTrim;
+  for (int i = 0; i < 20; i++) { fake_millis += 10; lineFollow(SPEED_PWM); }
+  CHECK(motorTrim > before, "오른쪽 센서로 바로잡으면 반대로 (왼쪽을 세게)");
+  fake_pins[PIN_FRONT_RIGHT] = LOW;
+  setTrim(0);
+
   printf("== 교차로: 옆 센서 ==\n");
   junctionIgnoreUntil = 0; junctionSince = 0;
   CHECK(!junctionSeen(true), "옆 센서가 바닥이면 교차로 아님");
