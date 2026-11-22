@@ -269,6 +269,14 @@ int main(int argc, char** argv) {
   spinDrive(-1);
   CHECK(lastLeftPwm < 0 && lastRightPwm > 0, "좌회전 = 왼쪽 바퀴 뒤로 · 오른쪽 바퀴 앞으로");
 
+  printf("== 멈춤 시험 (h): 분기를 알아보면 멈춤 ==\n");
+  testRoute = "!";
+  testStart();
+  junctionL = false; junctionR = true;
+  testEvent();
+  CHECK(state == ST_IDLE && routeIdx == 1, "분기에서 돌지 않고 멈춤");
+  testRoute = TEST_ROUTE;
+
   printf("== 분기 시험 (j): 옆에 선이 보인 쪽으로 ==\n");
   testRoute = "??";
   testStart();

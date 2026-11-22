@@ -34,7 +34,7 @@
  *   - 초음파(HC-SR04)를 달면(PIN_SONAR_TRIG) 달리는 중 앞에 장애물이 가까우면 멈췄다가 치워지면 다시 간다.
  * 시리얼(115200): s 센서 · u 초음파 · m 바퀴 하나씩 · f 앞으로 · l/r 제자리 회전 · c 속도 재기(5초 선 따라가기)
  *                 t 선 따라가기 시험(점수 · 대기 중 BOOT 버튼도) · k 코스 시험(서버 없이 TEST_ROUTE) · b 모터 힘 맞추기(10초) · [ ] 보정 손으로 · z 보정 처음으로
- *                 + / - 속도(끊어 가기 %, 보드에 기억) · ( ) 세기 · w 바퀴가 도는 최소 세기 찾기 · j 분기 시험(옆에 선이 보이면 그쪽으로) · , . 회전 전 전진 시간
+ *                 + / - 속도(끊어 가기 %, 보드에 기억) · ( ) 세기 · w 바퀴가 도는 최소 세기 찾기 · h 멈춤 시험(분기를 알아보면 멈춤) · j 분기 시험(옆에 선이 보이면 그쪽으로) · , . 회전 전 전진 시간
  *                 v 주행 기록 켜기/끄기 · p 계획 보기 · x 멈춤
  */
 #if defined(ESP32)
@@ -410,7 +410,7 @@ bool junctionSeen(bool allowed) {
 void logDrive(const char* tag) {
   if (!verbose || millis() - lastLog < 100) return;
   lastLog = millis();
-  Serial.printf("[%s] 센서 옆L%d 앞L%d 앞R%d 옆R%d · 바퀴 %d %d · 보정 %+.3f · 앞 %dcm\n", tag, (int)sLeft(), (int)sFrontL(), (int)sFrontR(), (int)sRight(), lastLeftPwm, lastRightPwm, motorTrim, lastCm);
+  Serial.printf("[%s] 센서 뒤L%d 앞L%d 앞R%d 뒤R%d · 바퀴 %d %d · 보정 %+.3f · 앞 %dcm\n", tag, (int)sLeft(), (int)sFrontL(), (int)sFrontR(), (int)sRight(), lastLeftPwm, lastRightPwm, motorTrim, lastCm);
 }
 
 // ───────── 방향 계산 ─────────
@@ -664,6 +664,12 @@ void testEvent() {
   testLastEvent = millis();
   if (!a) { testFinish("코스 글자를 다 썼어요"); return; }
   routeIdx++;
+  if (a == '!') {   // 멈춤 시험: 분기를 알아보면 돌지 않고 바로 멈추고 어느 쪽인지 알림
+    Serial.printf("[멈춤 시험] 분기 발견 → 멈춤: %s에 선 (뒤왼쪽 %d · 뒤오른쪽 %d · 앞왼쪽 %d · 앞오른쪽 %d)\n",
+                  junctionL && junctionR ? "양쪽" : junctionL ? "왼쪽" : "오른쪽", (int)sLeft(), (int)sRight(), (int)sFrontL(), (int)sFrontR());
+    testFinish("분기에서 멈춤");
+    return;
+  }
   if (a == '?') {   // 분기 시험: 선을 본 옆 센서 쪽으로 (양쪽 다면 T자·끝 표시 → 멈춤)
     a = (junctionL && junctionR) ? 'E' : junctionL ? 'L' : 'R';
     Serial.printf("[분기 시험] %d번째: %s에 선 → %s\n", routeIdx, junctionL && junctionR ? "양쪽" : junctionL ? "왼쪽" : "오른쪽",
@@ -784,11 +790,11 @@ void serialCommands() {
   if (!Serial.available()) return;
   char ch = Serial.read();
   if (ch == 's') {
-    Serial.println("센서 5초 — 1 = 검정 선을 봄. 선 가운데에 똑바로 두면 앞L 0 · 앞R 0 · 옆 0 이 맞음 (선 위 센서가 0 이면 LINE_IS_HIGH 를 바꾸기)");
+    Serial.println("센서 5초 — 1 = 검정 선을 봄. 선 가운데에 똑바로 두면 앞L 0 · 앞R 0 · 뒤 0 이 맞음 (선 위 센서가 0 이면 LINE_IS_HIGH 를 바꾸기)");
     for (int i = 0; i < 50; i++) {
-      Serial.printf("옆왼쪽 %d  앞왼쪽 %d  앞오른쪽 %d  옆오른쪽 %d", (int)sLeft(), (int)sFrontL(), (int)sFrontR(), (int)sRight());
+      Serial.printf("뒤왼쪽 %d  앞왼쪽 %d  앞오른쪽 %d  뒤오른쪽 %d", (int)sLeft(), (int)sFrontL(), (int)sFrontR(), (int)sRight());
       if (SENSOR_LEFT_ANALOG || SENSOR_RIGHT_ANALOG)
-        Serial.printf("   (옆 아날로그 원값 %d %d)", SENSOR_LEFT_ANALOG ? analogRead(PIN_SENSOR_LEFT) : -1, SENSOR_RIGHT_ANALOG ? analogRead(PIN_SENSOR_RIGHT) : -1);
+        Serial.printf("   (뒤 아날로그 원값 %d %d)", SENSOR_LEFT_ANALOG ? analogRead(PIN_SENSOR_LEFT) : -1, SENSOR_RIGHT_ANALOG ? analogRead(PIN_SENSOR_RIGHT) : -1);
       Serial.println();
       delay(100);
     }
@@ -854,11 +860,16 @@ void serialCommands() {
   } else if (ch == 't') {
     if (state == ST_FOLLOW || state == ST_ELEVATOR) { Serial.println("서버 주행 중이라 시험할 수 없어요 (x 로 멈춘 뒤)"); return; }
     traceStart();
+  } else if (ch == 'h') {
+    if (state == ST_FOLLOW || state == ST_ELEVATOR) { Serial.println("서버 주행 중이라 시험할 수 없어요 (x 로 멈춘 뒤)"); return; }
+    testRoute = "!";   // 분기를 알아보면 멈춤
+    testStart();
+    Serial.println("[멈춤 시험] 선을 따라가다 뒤 센서(차체 양옆)가 분기를 알아보면 바로 멈춰요");
   } else if (ch == 'j') {
     if (state == ST_FOLLOW || state == ST_ELEVATOR) { Serial.println("서버 주행 중이라 시험할 수 없어요 (x 로 멈춘 뒤)"); return; }
     testRoute = "??????????";   // 분기를 만날 때마다 선이 있는 쪽으로 (최대 10번)
     testStart();
-    Serial.printf("[분기 시험] 선을 따라가다 옆에 선이 보이면 그쪽으로 돌아요 (양쪽이면 멈춤) · 회전 전 전진 %dms\n", turnForwardMs);
+    Serial.printf("[분기 시험] 선을 따라가다 뒤 센서가 옆에 선을 보면 그쪽으로 돌아요 (양쪽이면 멈춤) · 회전 전 전진 %dms\n", turnForwardMs);
   } else if (ch == ',' || ch == '.') {
     turnForwardMs = constrain(turnForwardMs + (ch == '.' ? 20 : -20), 0, 1500);
     speedSave();
