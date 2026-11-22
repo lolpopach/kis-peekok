@@ -189,6 +189,66 @@
 #define TEST_ROUTE "RURLE"
 #endif
 
+
+// ───────── 시리얼로 바꾸는 설정 (P이름=값, 보드에 기억) ─────────
+// config.h 값은 처음 값. 아래 이름들은 변수로 바꿔 업로드 없이 시리얼에서 맞춘다.
+int P_STEER_MIN = STEER_MIN;
+int P_STEER_MAX = STEER_MAX;
+int P_STEER_RAMP_MS = STEER_RAMP_MS;
+int P_MIN_PWM = MIN_PWM;
+int P_TURN_PWM = TURN_PWM;
+int P_ARC_PWM = ARC_PWM;
+int P_ARC_INNER_PWM = ARC_INNER_PWM;
+int P_ARC_SETTLE_MS = ARC_SETTLE_MS;
+int P_ARC_TIMEOUT_MS = ARC_TIMEOUT_MS;
+int P_TURN_PAUSE_MS = TURN_PAUSE_MS;
+int P_JUNCTION_MS = JUNCTION_MS;
+int P_BRANCH_PAIR_MS = BRANCH_PAIR_MS;
+int P_JUNCTION_COOLDOWN_MS = JUNCTION_COOLDOWN_MS;
+int P_BACK_PWM = BACK_PWM;
+int P_BACK_EXTRA_MS = BACK_EXTRA_MS;
+int P_LIFT_MS = LIFT_MS;
+int P_FLICKER_MS = FLICKER_MS;
+int P_TEST_GIVEUP_MS = TEST_GIVEUP_MS;
+#undef STEER_MIN
+#define STEER_MIN P_STEER_MIN
+#undef STEER_MAX
+#define STEER_MAX P_STEER_MAX
+#undef STEER_RAMP_MS
+#define STEER_RAMP_MS P_STEER_RAMP_MS
+#undef MIN_PWM
+#define MIN_PWM P_MIN_PWM
+#undef TURN_PWM
+#define TURN_PWM P_TURN_PWM
+#undef ARC_PWM
+#define ARC_PWM P_ARC_PWM
+#undef ARC_INNER_PWM
+#define ARC_INNER_PWM P_ARC_INNER_PWM
+#undef ARC_SETTLE_MS
+#define ARC_SETTLE_MS P_ARC_SETTLE_MS
+#undef ARC_TIMEOUT_MS
+#define ARC_TIMEOUT_MS P_ARC_TIMEOUT_MS
+#undef TURN_PAUSE_MS
+#define TURN_PAUSE_MS P_TURN_PAUSE_MS
+#undef JUNCTION_MS
+#define JUNCTION_MS P_JUNCTION_MS
+#undef BRANCH_PAIR_MS
+#define BRANCH_PAIR_MS P_BRANCH_PAIR_MS
+#undef JUNCTION_COOLDOWN_MS
+#define JUNCTION_COOLDOWN_MS P_JUNCTION_COOLDOWN_MS
+#undef BACK_PWM
+#define BACK_PWM P_BACK_PWM
+#undef BACK_EXTRA_MS
+#define BACK_EXTRA_MS P_BACK_EXTRA_MS
+#undef LIFT_MS
+#define LIFT_MS P_LIFT_MS
+#undef FLICKER_MS
+#define FLICKER_MS P_FLICKER_MS
+#undef TEST_GIVEUP_MS
+#define TEST_GIVEUP_MS P_TEST_GIVEUP_MS
+
+void paramCommand(const char* line);
+
 // ───────── 주행 계획 ─────────
 const int MAX_NODES = 64;
 struct Node {
@@ -1126,6 +1186,18 @@ void serialCommands() {
   } else if (ch == ',' || ch == '.') {
     turnForwardMs = constrain(turnForwardMs + (ch == '.' ? 20 : -20), 0, 1500);
     speedSave();
+  } else if (ch == 'P') {         // P = 설정 목록 · P이름=값 = 바꾸고 기억 · P reset
+    char buf[48]; int n = 0; unsigned long t0 = millis();
+    while (millis() - t0 < 500) {
+      if (Serial.available()) {
+        char c = Serial.read(); t0 = millis();
+        if (c == '\n' || c == '\r') break;
+        if (c != ' ' && n < (int)sizeof(buf) - 1) buf[n++] = c;
+      }
+      yield();
+    }
+    buf[n] = 0;
+    paramCommand(buf);
   } else if (ch == 'K') {         // K<순서 글자들> + 엔터(또는 0.5초 쉼): 코스 순서 바꾸기·저장
     char buf[sizeof(routeBuf)]; int n = 0; unsigned long t0 = millis();
     while (millis() - t0 < 500) {
@@ -1260,6 +1332,75 @@ int wifiFails = 0;
 int shownReason = -1;
 void wifiTick();
 
+struct Param { const char* key; int* v; int lo, hi; const char* help; };
+Param params[] = {
+  {"speed", &speedPwm, 0, 255, "직진 세기"},
+  {"duty", &speedDuty, 10, 100, "바퀴 돌리는 비율(%)"},
+  {"tfwd", &turnForwardMs, 0, 1500, "회전 전 전진(ms)"},
+  {"uign", &uturnIgnoreMs, 0, 5000, "유턴: 처음 선 무시(ms)"},
+  {"uback", &uturnBackMs, 0, 3000, "유턴 전 뒤로(ms)"},
+  {"steerMin", &P_STEER_MIN, 0, 255, "꺾기 시작 세기"},
+  {"steerMax", &P_STEER_MAX, 0, 400, "꺾기 최대 세기"},
+  {"steerRamp", &P_STEER_RAMP_MS, 50, 3000, "꺾기 세지는 시간(ms)"},
+  {"minPwm", &P_MIN_PWM, 0, 255, "바퀴가 도는 최소 세기"},
+  {"turnPwm", &P_TURN_PWM, 0, 255, "제자리 회전 세기"},
+  {"arcPwm", &P_ARC_PWM, 0, 255, "앞으로 가며 돌기 바깥 바퀴 세기"},
+  {"arcInner", &P_ARC_INNER_PWM, 0, 255, "앞으로 가며 돌기 안쪽 바퀴 세기"},
+  {"arcSettle", &P_ARC_SETTLE_MS, 0, 3000, "회전: 선 지난 뒤 멈추기까지(ms)"},
+  {"arcTimeout", &P_ARC_TIMEOUT_MS, 500, 20000, "회전 최대 시간(ms)"},
+  {"turnPause", &P_TURN_PAUSE_MS, 0, 5000, "분기·끝에서 멈추는 시간(ms)"},
+  {"juncMs", &P_JUNCTION_MS, 0, 1000, "분기 확정 시간(ms)"},
+  {"pairMs", &P_BRANCH_PAIR_MS, 0, 5000, "분기: 앞→뒤 센서 사이 최대(ms)"},
+  {"juncCool", &P_JUNCTION_COOLDOWN_MS, 0, 5000, "회전 뒤 분기 무시(ms)"},
+  {"backPwm", &P_BACK_PWM, 0, 255, "뒤로 가기 세기"},
+  {"backExtra", &P_BACK_EXTRA_MS, 0, 3000, "본선에 닿은 뒤 더 물러나기(ms)"},
+  {"liftMs", &P_LIFT_MS, 100, 10000, "모두 검정이면 멈추기(ms)"},
+  {"flickerMs", &P_FLICKER_MS, 0, 5000, "깜빡임 판단 시간(ms)"},
+  {"giveupMs", &P_TEST_GIVEUP_MS, 1000, 120000, "시험: 표시 못 만나면 멈추기(ms)"},
+};
+const int PARAM_COUNT = sizeof(params) / sizeof(params[0]);
+void paramsLoad() {
+#if defined(ESP32)
+  Preferences p;
+  if (!p.begin("peekokp", true)) return;
+  for (int i = 0; i < PARAM_COUNT; i++) if (p.isKey(params[i].key)) *params[i].v = constrain((int)p.getInt(params[i].key, *params[i].v), params[i].lo, params[i].hi);
+  p.end();
+#endif
+}
+void paramSave(int i) {
+#if defined(ESP32)
+  Preferences p;
+  if (p.begin("peekokp", false)) { p.putInt(params[i].key, *params[i].v); p.end(); }
+#endif
+}
+void paramsPrint() {
+  Serial.println("[설정] 이름=값 (범위) 설명 — 바꾸려면 P이름=값 · 처음 값으로 P reset");
+  for (int i = 0; i < PARAM_COUNT; i++) Serial.printf("  %-10s = %-6d (%d~%d) %s\n", params[i].key, *params[i].v, params[i].lo, params[i].hi, params[i].help);
+}
+// "이름=값" 한 줄 처리
+void paramCommand(const char* line) {
+  if (!line[0]) { paramsPrint(); return; }
+  if (!strcmp(line, "reset")) {
+#if defined(ESP32)
+    Preferences p; if (p.begin("peekokp", false)) { p.clear(); p.end(); }
+#endif
+    Serial.println("[설정] 보드에 기억한 값을 지웠어요 — 다시 켜면 config.h 처음 값");
+    return;
+  }
+  const char* eq = strchr(line, '=');
+  if (!eq) { Serial.printf("[설정] '%s' — P이름=값 형식으로\n", line); return; }
+  for (int i = 0; i < PARAM_COUNT; i++) {
+    if ((int)strlen(params[i].key) == eq - line && !strncmp(line, params[i].key, eq - line)) {
+      int v = constrain(atoi(eq + 1), params[i].lo, params[i].hi);
+      *params[i].v = v;
+      paramSave(i);
+      Serial.printf("[설정] %s = %d 저장 (%s)\n", params[i].key, v, params[i].help);
+      return;
+    }
+  }
+  Serial.printf("[설정] 이름을 모르겠어요: %.*s — P 만 보내면 목록\n", (int)(eq - line), line);
+}
+
 int sensorPinMode(int pin) {
 #if defined(ESP32)
   return (pin >= 34 && pin <= 39) ? INPUT : INPUT_PULLUP;
@@ -1295,6 +1436,7 @@ void setup() {
   stopMotors();
 #endif
   trimLoad();
+  paramsLoad();
   Serial.printf("모터 보정 %+.3f (왼쪽 x%.2f · 오른쪽 x%.2f) · 세기 %d · 끊어 가기 %d%% · PWM %dHz\n", motorTrim, 1 + motorTrim, 1 - motorTrim, speedPwm, speedDuty, (int)PWM_FREQ);
 
 #if defined(ESP32)
