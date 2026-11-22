@@ -373,13 +373,8 @@ void lineFollow(int base, bool sideRecover = false) {
     followSide = side; followSince = now;
   }
   if (fl || fr) lineSeenAt = now;
-  // 앞 두 센서가 다 놓쳤는데 옆 센서 하나가 선을 봄 = 선이 크게 벗어남 → 그쪽으로 크게 꺾어 되찾기 (선 시험·속도 재기에서만;
-  // 서버 주행·코스 시험에서는 옆 센서가 교차로 신호라서 쓰지 않음)
-  if (sideRecover && side == 0 && (sLeft() != sRight())) {
-    int d = sLeft() ? -1 : 1;
-    driveP(base + d * STEER_MAX, base - d * STEER_MAX);
-    return;
-  }
+  // 뒤 센서는 바퀴 방향에 쓰지 않음 (분기 알아보기 전용). sideRecover 는 예전 호출과 맞추려고 남겨 둠
+  (void)sideRecover;
   if (side == 0 && (long)(now - counterUntil) < 0) { driveP(base + counterSide * STEER_MIN, base - counterSide * STEER_MIN); return; }
   if (side == 0 || side == 2) { driveP(base, base); return; }   // 선이 사이에 있음 · 앞에 가로선 → 곧장
   // 한쪽이 검정 = 선이 그쪽으로 치우침 → 그쪽으로 꺾기. 오래 이어질수록 세게(STEER_RAMP_MS 에 STEER_MAX = 제자리 회전에 가깝게)
