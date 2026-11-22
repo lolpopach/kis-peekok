@@ -301,6 +301,16 @@ int main(int argc, char** argv) {
   CHECK(!junctionSeen(true), "앞 오른쪽을 본 지 너무 오래됐으면 무시");
   fake_analog = 0; junctionSince = 0;
 
+  printf("== 뒤로 가며 앞 센서로 선 맞추기 ==\n");
+  fake_pins[PIN_FRONT_LEFT] = LOW; fake_pins[PIN_FRONT_RIGHT] = LOW; revSide = 0;
+  reverseFollow(400);
+  CHECK(lastLeftPwm == -400 && lastRightPwm == -400, "앞 센서 둘 다 바닥 → 곧장 뒤로");
+  fake_pins[PIN_FRONT_LEFT] = HIGH; fake_millis += 10; reverseFollow(400);
+  CHECK(lastLeftPwm < lastRightPwm && lastLeftPwm < 0 && lastRightPwm <= 0, "앞 왼쪽 검정 → 앞으로 갈 때처럼 왼쪽으로 돌림 (왼쪽 바퀴가 더 빨리 뒤로)");
+  fake_pins[PIN_FRONT_LEFT] = LOW; fake_pins[PIN_FRONT_RIGHT] = HIGH; fake_millis += 10; reverseFollow(400);
+  CHECK(lastLeftPwm > lastRightPwm && lastLeftPwm <= 0, "앞 오른쪽 검정 → 오른쪽으로 돌림");
+  fake_pins[PIN_FRONT_RIGHT] = LOW;
+
   printf("== 깜빡임 거르기 (떠 있는 핀) ==\n");
   { Flicker f = {false, {0, 0, 0, 0}, 0, false}; bool any = false;
     for (int i = 0; i < 20; i++) { fake_millis += 100; if (steadyRead(f, i % 2 == 0, "시험")) any = (i > 4) ? true : any; }

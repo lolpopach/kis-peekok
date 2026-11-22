@@ -779,15 +779,33 @@ void followStep() {
 const char* testRoute = routeBuf;
 // 끝(T자)에서 뒤로 가서 본선 찾기: 뒤 센서가 T자 가로선을 벗어난 뒤, 두 뒤 센서가 모두 본선을 보면
 // BACK_EXTRA_MS 만큼 더 물러나 바퀴 축을 본선 위에 맞추고 멈춤
+// 뒤로 가며 앞 센서로 선 맞추기: 앞 왼쪽이 검정이면 차체 앞을 왼쪽으로(앞으로 갈 때와 같은 쪽으로 돌림).
+// 뒤로 가면서도 회전 방향이 같도록 바퀴 차이를 준다. 바퀴는 앞으로는 돌지 않음(0 까지만).
+int revSide = 0; unsigned long revSince = 0;
+void reverseFollow(int base) {
+  unsigned long now = millis();
+  bool fl = sFrontL(), fr = sFrontR();
+  int side = (fl && fr) ? 0 : fl ? -1 : fr ? 1 : 0;
+  if (side != revSide) { revSide = side; revSince = now; }
+  if (!side) { driveP(-base, -base); return; }
+  unsigned long t = now - revSince;
+  if (t > STEER_RAMP_MS) t = STEER_RAMP_MS;
+  int steer = STEER_MIN + (int)((long)(STEER_MAX - STEER_MIN) * (long)t / STEER_RAMP_MS);
+  int l = -base + side * steer, r = -base - side * steer;   // 회전 방향 = 왼쪽 - 오른쪽 = 2·side·steer (앞으로 갈 때와 같음)
+  if (l > 0) l = 0;
+  if (r > 0) r = 0;
+  driveP(l, r);
+}
 bool backToLine() {
   unsigned long m0 = moveMs, t0 = millis();
   moveLastAt = 0;
   int savedDuty = speedDuty;
   speedDuty = 100;               // 뒤로 갈 때는 끊지 않고 계속 (끊으면 뒤로 잘 안 감)
   struct Restore { int& d; int v; ~Restore() { d = v; } } restore{speedDuty, savedDuty};
+  revSide = 0; revSince = millis();
   bool cleared = false, seenL = PIN_SENSOR_LEFT < 0, seenR = PIN_SENSOR_RIGHT < 0;
   while (moveMs - m0 < BACK_TIMEOUT_MS && millis() - t0 < BACK_TIMEOUT_MS * 12UL) {
-    driveP(-BACK_PWM, -BACK_PWM);
+    reverseFollow(BACK_PWM);
     bool l = sLeft(), r = sRight();
     logDrive("뒤로");
     if (!cleared) { if (!l && !r) cleared = true; }
@@ -797,7 +815,7 @@ bool backToLine() {
       if (seenL && seenR) {
         Serial.println("[코스] 뒤로 가다 뒤 센서가 본선에 닿음");
         unsigned long m1 = moveMs;
-        while (moveMs - m1 < BACK_EXTRA_MS) { driveP(-BACK_PWM, -BACK_PWM); yield(); }
+        while (moveMs - m1 < BACK_EXTRA_MS) { reverseFollow(BACK_PWM); yield(); }
         stopMotors();
         delay(200);
         return true;
