@@ -138,6 +138,13 @@ arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 -u -p /dev/cu.usbserial-10 
 - 보안 방식이 **아이디+비밀번호(엔터프라이즈)** 면 펌웨어에 로그인 기능을 추가해야 합니다. 웹 로그인 페이지가 뜨는 WiFi 는
   쓸 수 없으니 학교에 기기 등록(업로드할 때 나오는 `MAC:` 주소)이나 기기용 WiFi 를 부탁합니다.
 
+## 무선 (WiFi) — 업로드·시리얼
+
+로봇과 Mac 이 같은 WiFi 에 있으면 케이블 없이:
+- **올리기:** `tools/upload.sh` (`~/.zshrc` 의 `upload`) — USB 가 꽂혀 있으면 USB, 없으면 WiFi(ArduinoOTA, `peekok-robot.local:3232`).
+  비밀번호는 `config.h` 의 `OTA_PASS`(없으면 `ROBOT_KEY`), 화면에 출력하지 않음. 처음 한 번은 USB 로 올려야 함.
+- **시리얼:** 로봇이 WiFi 가 붙으면 TCP 2323 에서 시리얼과 같은 내용을 보내고 명령을 받는다. `run` 은 USB 가 없으면 자동으로 WiFi(`peekok-robot.local`)로 연결 (`run w …` 는 늘 WiFi, `ROBOT_HOST=IP` 로 주소 지정).
+
 ## 업로드 없이 바로 시험하기 (Mac)
 
 `tools/run.pl` 이 보드를 찾아 시험 명령을 보내고 시리얼을 보여 준다. `~/.zshrc` 에 `alias run="perl …/tools/run.pl"` 를 넣어 두면 새 터미널에서:
