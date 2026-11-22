@@ -331,7 +331,8 @@ int main(int argc, char** argv) {
   fake_pins[PIN_FRONT_LEFT] = HIGH; fake_pins[PIN_FRONT_RIGHT] = HIGH; junctionSeen(true);   // 가로선을 앞 센서 둘이 지남
   fake_pins[PIN_FRONT_LEFT] = LOW; fake_pins[PIN_FRONT_RIGHT] = LOW; moveMs += 100;
   fake_analog = 1000; junctionSeen(true); fake_millis += JUNCTION_MS; junctionSeen(true); moveMs += DECIDE_MS + 1; fake_millis += 10;
-  CHECK(junctionSeen(true) && junctionL && junctionR, "뒤 한쪽만 봐도 직전에 앞 둘이 동시에 검정이면 T자");
+  if (CROSS_LOOKBACK_MS > 0) CHECK(junctionSeen(true) && junctionL && junctionR, "뒤 한쪽만 봐도 직전에 앞 둘이 동시에 검정이면 T자");
+  else CHECK(junctionSeen(true) && junctionR && !junctionL, "앞 둘 동시 검정 규칙을 끄면 뒤 오른쪽만 → 오른쪽 분기");
   fake_analog = 0;
 
   printf("== 제자리 회전 방향 ==\n");

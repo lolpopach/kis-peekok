@@ -700,7 +700,7 @@ bool junctionSeen(bool allowed) {
   junctionL = junctionL || l; junctionR = junctionR || r;
   if (moveMs + 1 - decideStart < (unsigned long)DECIDE_MS) return false;
   // ③ 결정: 양쪽 다 봤거나, 직전에 앞 센서 둘이 동시에 검정(가로선) → T자. 아니면 본 쪽 분기
-  bool frontCross = frontBothMove && moveMs + 1 - frontBothMove <= (unsigned long)(DECIDE_MS + CROSS_LOOKBACK_MS);
+  bool frontCross = CROSS_LOOKBACK_MS > 0 && frontBothMove && moveMs + 1 - frontBothMove <= (unsigned long)(DECIDE_MS + CROSS_LOOKBACK_MS);   // 0 = 끔 (뒤 센서 양쪽만으로 T자)
   if (frontCross && !(junctionL && junctionR)) { junctionL = junctionR = true; Out.println("[판단] 앞 센서 둘이 가로선을 지남 → T자"); }
   else Out.printf("[판단] %s\n", junctionL && junctionR ? "뒤 센서 양쪽 → T자" : junctionL ? "뒤 왼쪽만 → 왼쪽 분기" : "뒤 오른쪽만 → 오른쪽 분기");
   decideStart = 0; junctionSince = 0;
