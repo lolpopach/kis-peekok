@@ -107,7 +107,7 @@
 #define TURN_FORWARD_MS  0      // 교차로 감지 뒤 바퀴 축이 교차점에 오도록 더 가는 시간 (처음 값 — 시리얼 , . 로 ±20ms, 보드에 기억)
 #define CROSS_CLEAR_MS   250    // 교차로를 곧장 지날 때 핸들을 고정하고 가는 시간
 #define TURN_PAUSE_MS    1000   // 분기를 알아보면 이만큼 멈춘 뒤 회전
-#define TURN_MODE        0      // 분기 회전 방식: 0 앞으로 가며 돌기(바깥 바퀴만) · 1 제자리 회전(두 바퀴 반대로, UTURN_PWM) — 시리얼 PturnMode=0/1
+#define TURN_MODE        1      // 분기 회전 방식: 0 앞으로 가며 돌기(바깥 바퀴만) · 1 제자리 회전(두 바퀴 반대로, UTURN_PWM) — 시리얼 PturnMode=0/1
 #define ARC_PWM          (PWM_MAX * 100 / 255)   // 앞으로 가며 돌 때 바깥 바퀴 세기 (우회전이면 왼쪽 바퀴)
 #define ARC_INNER_PWM    0      // 앞으로 가며 돌 때 안쪽 바퀴 세기 (0 = 멈춤, 더 크게 돌려면 음수는 쓰지 말고 0)
 #define ARC_SETTLE_MS    300    // 회전: 도는 쪽 앞 센서가 새 선을 지나간 뒤 이 시간(바퀴 돌린 시간) 안에 반대쪽 앞 센서가 안 닿으면 그대로 멈춤 (지나쳐 계속 도는 것 막기)
@@ -136,8 +136,11 @@
 // U = 끝(T자)에서 1초 멈춤 → UTURN_BACK_MS 뒤로 → 제자리에서 돌아(두 바퀴 반대로) 왔던 선에 올라타기 → 앞으로 본선까지 가서 다음 글자로 회전
 // 예: "RURLULE" = 오른쪽 분기 우회전 → 끝 유턴 → 본선 우회전 → 왼쪽 분기 좌회전 → 끝 유턴 → 본선 좌회전 → 최종점 정지
 #define UTURN_DIR        'L'    // 유턴 방향 (제자리에서 왼쪽으로)
-#define SPIN_DUTY        50     // 제자리 회전·유턴을 끊어 가며 천천히: PULSE_MS 중 돌리는 비율(%) (시리얼 PspinDuty=값)
-#define UTURN_PWM        (PWM_MAX * 150 / 255)   // 제자리 유턴 세기 — 두 바퀴를 반대로, 끊지 않고 (시리얼 PuPwm=값)
+#define SPIN_DUTY        100    // 제자리 회전 끊어 가기 비율(%) — 100 = 끊지 않음 (끊으면 다시 출발할 때마다 헛돎)
+#define SPIN_KICK_PWM    (PWM_MAX * 170 / 255)   // 제자리 회전 처음 세기 (멈춰 있는 바퀴를 출발시킴)
+#define SPIN_KICK_MS     150    // 처음 세기 유지 시간(ms)
+#define SPIN_BRAKE_MS    50     // 멈출 때 반대로 살짝 돌리는 시간(ms) — 관성으로 더 도는 것 막기
+#define UTURN_PWM        (PWM_MAX * 120 / 255)   // 제자리 회전 세기 — 출발 뒤 두 바퀴를 반대로 끊지 않고 (시리얼 PuPwm=값)
 #define UTURN_IGNORE_MS  900    // 유턴: 처음 이 시간(바퀴 돌린 시간) 동안은 T자 가로선 등 선을 무시하고 돎 — 시리얼 < > 로 ±100 (일찍 서면 늘리고, 왔던 선을 지나쳐 더 돌면 줄이기)
 #define UTURN_BACK_MS    300    // 유턴 전에 뒤로 가는 시간 — 시리얼 { } 로 ±50
 #define BACK_PWM         (PWM_MAX * 150 / 255)   // 뒤로 갈 때 세기 (끊지 않고 계속 돌림)

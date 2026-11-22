@@ -143,7 +143,16 @@
 #define UTURN_BACK_MS 300
 #endif
 #ifndef SPIN_DUTY
-#define SPIN_DUTY 50
+#define SPIN_DUTY 100
+#endif
+#ifndef SPIN_KICK_PWM
+#define SPIN_KICK_PWM (PWM_MAX * 170 / 255)
+#endif
+#ifndef SPIN_KICK_MS
+#define SPIN_KICK_MS 150
+#endif
+#ifndef SPIN_BRAKE_MS
+#define SPIN_BRAKE_MS 50
 #endif
 #ifndef TURN_MODE
 #define TURN_MODE 0
@@ -222,6 +231,9 @@ int P_TEST_GIVEUP_MS = TEST_GIVEUP_MS;
 int P_UTURN_PWM = UTURN_PWM;
 int P_TURN_MODE = TURN_MODE;
 int P_SPIN_DUTY = SPIN_DUTY;
+int P_SPIN_KICK_PWM = SPIN_KICK_PWM;
+int P_SPIN_KICK_MS = SPIN_KICK_MS;
+int P_SPIN_BRAKE_MS = SPIN_BRAKE_MS;
 #undef STEER_MIN
 #define STEER_MIN P_STEER_MIN
 #undef STEER_MAX
@@ -264,6 +276,12 @@ int P_SPIN_DUTY = SPIN_DUTY;
 #define TURN_MODE P_TURN_MODE
 #undef SPIN_DUTY
 #define SPIN_DUTY P_SPIN_DUTY
+#undef SPIN_KICK_PWM
+#define SPIN_KICK_PWM P_SPIN_KICK_PWM
+#undef SPIN_KICK_MS
+#define SPIN_KICK_MS P_SPIN_KICK_MS
+#undef SPIN_BRAKE_MS
+#define SPIN_BRAKE_MS P_SPIN_BRAKE_MS
 
 void paramCommand(const char* line);
 
@@ -778,31 +796,40 @@ bool arcToLine(int dir, unsigned long ignoreMs = 0) {
   stopMotors();
   return leadSeen;               // 새 선에 닿기라도 했으면 이어서 따라가 봄
 }
-// 제자리 유턴: 두 바퀴를 반대로(끊지 않고 UTURN_PWM) 돌려 그 자리에서 돈다.
-// 처음 ignoreMs 동안은 선을 무시(T자 가로선) → 도는 쪽 앞 센서가 왔던 선에 닿고 지나가면, 반대쪽 앞 센서가 닿거나 ARC_SETTLE_MS 뒤 멈춤
+// 제자리 회전(분기·유턴 공용): 두 바퀴를 반대로, 끊지 않고 부드럽게.
+//   처음 SPIN_KICK_MS 만 SPIN_KICK_PWM 으로 세게(멈춰 있는 바퀴 출발) → 그다음 UTURN_PWM 으로 약하게 계속 →
+//   멈출 때 SPIN_BRAKE_MS 동안 반대로 살짝 돌려 관성으로 더 도는 것을 막음.
+// 처음 ignoreMs 동안은 선을 무시(T자 가로선) → 도는 쪽 앞 센서가 선에 닿고 지나가면, 반대쪽 앞 센서가 닿거나 ARC_SETTLE_MS 뒤 멈춤
+void spinBrake(int dir) {
+  if (SPIN_BRAKE_MS <= 0) { stopMotors(); return; }
+  drive(-dir * UTURN_PWM, dir * UTURN_PWM);
+  delay(SPIN_BRAKE_MS);
+  stopMotors();
+}
 bool spinUturn(int dir, unsigned long ignoreMs) {
   int savedDuty = speedDuty;
-  speedDuty = SPIN_DUTY;         // 제자리 회전도 끊어 가며 천천히 (세기는 그대로 둬서 헛돌지 않게)
+  speedDuty = SPIN_DUTY;         // 기본 100 = 끊지 않음 (끊으면 다시 출발할 때마다 헛돎)
   unsigned long m0 = moveMs, t0 = millis();
   moveLastAt = 0;
   bool leadSeen = false;
   unsigned long passedAt = 0;
   bool ok = false;
   while (moveMs - m0 < ARC_TIMEOUT_MS + ignoreMs && millis() - t0 < (ARC_TIMEOUT_MS + ignoreMs) * 3UL) {
-    driveP(dir * UTURN_PWM, -dir * UTURN_PWM);
-    logDrive("유턴");
+    int pwm = (millis() - t0 < (unsigned long)SPIN_KICK_MS) ? SPIN_KICK_PWM : UTURN_PWM;
+    driveP(dir * pwm, -dir * pwm);
+    logDrive("제자리");
     bool lead = dir > 0 ? sFrontR() : sFrontL();
     bool trail = dir > 0 ? sFrontL() : sFrontR();
     if (moveMs - m0 < ignoreMs) { yield(); continue; }
-    if (!leadSeen) { if (lead) { leadSeen = true; Serial.printf("[유턴] 앞 %s 센서가 선에 닿음\n", dir > 0 ? "오른쪽" : "왼쪽"); } }
-    else if (trail && passedAt) { ok = true; Serial.printf("[유턴] 앞 %s 센서도 닿음\n", dir > 0 ? "왼쪽" : "오른쪽"); break; }
+    if (!leadSeen) { if (lead) { leadSeen = true; Serial.printf("[제자리] 앞 %s 센서가 선에 닿음\n", dir > 0 ? "오른쪽" : "왼쪽"); } }
+    else if (trail && passedAt) { ok = true; Serial.printf("[제자리] 앞 %s 센서도 닿음\n", dir > 0 ? "왼쪽" : "오른쪽"); break; }
     else if (!lead) {
       if (!passedAt) passedAt = moveMs + 1;
-      if (moveMs + 1 - passedAt >= ARC_SETTLE_MS) { ok = true; Serial.println("[유턴] 선이 앞 센서 사이에 들어옴"); break; }
+      if (moveMs + 1 - passedAt >= ARC_SETTLE_MS) { ok = true; Serial.println("[제자리] 선이 앞 센서 사이에 들어옴"); break; }
     }
     yield();
   }
-  stopMotors();
+  if (ok || leadSeen) spinBrake(dir); else stopMotors();
   speedDuty = savedDuty;
   delay(100);
   return ok || leadSeen;
@@ -1387,9 +1414,12 @@ Param params[] = {
   {"tfwd", &turnForwardMs, 0, 1500, "회전 전 전진(ms)"},
   {"uign", &uturnIgnoreMs, 0, 5000, "유턴: 처음 선 무시(ms)"},
   {"uback", &uturnBackMs, 0, 3000, "유턴 전 뒤로(ms)"},
-  {"uPwm", &P_UTURN_PWM, 0, 255, "제자리 회전·유턴 세기 (두 바퀴 반대로)"},
+  {"uPwm", &P_UTURN_PWM, 0, 255, "제자리 회전 세기 (출발 뒤, 두 바퀴 반대로 계속)"},
   {"turnMode", &P_TURN_MODE, 0, 1, "분기 회전: 0 앞으로 가며 돌기 · 1 제자리 회전"},
-  {"spinDuty", &P_SPIN_DUTY, 10, 100, "제자리 회전·유턴 끊어 가기 비율(%) — 낮을수록 천천히"},
+  {"spinDuty", &P_SPIN_DUTY, 10, 100, "제자리 회전 끊어 가기 비율(%) — 100 = 끊지 않음(권장)"},
+  {"kickPwm", &P_SPIN_KICK_PWM, 0, 255, "제자리 회전 출발 세기 (멈춘 바퀴 출발)"},
+  {"kickMs", &P_SPIN_KICK_MS, 0, 1000, "제자리 회전 출발 세기 유지 시간(ms)"},
+  {"brakeMs", &P_SPIN_BRAKE_MS, 0, 300, "제자리 회전 멈출 때 반대로 돌리는 시간(ms)"},
   {"steerMin", &P_STEER_MIN, 0, 255, "꺾기 시작 세기"},
   {"steerMax", &P_STEER_MAX, 0, 400, "꺾기 최대 세기"},
   {"steerRamp", &P_STEER_RAMP_MS, 50, 3000, "꺾기 세지는 시간(ms)"},
