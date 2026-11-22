@@ -144,6 +144,12 @@
 #ifndef UTURN_BACK_MS
 #define UTURN_BACK_MS 300
 #endif
+#ifndef DECIDE_MS
+#define DECIDE_MS 200
+#endif
+#ifndef CROSS_LOOKBACK_MS
+#define CROSS_LOOKBACK_MS 800
+#endif
 #ifndef SPIN_DUTY
 #define SPIN_DUTY 100
 #endif
@@ -283,6 +289,8 @@ int P_PULSE_MS = PULSE_MS;
 int P_UTURN_PWM = UTURN_PWM;
 int P_TURN_MODE = TURN_MODE;
 int P_SPIN_DUTY = SPIN_DUTY;
+int P_DECIDE_MS = DECIDE_MS;
+int P_CROSS_LOOKBACK_MS = CROSS_LOOKBACK_MS;
 int P_SPIN_KICK_PWM = SPIN_KICK_PWM;
 int P_SPIN_KICK_MS = SPIN_KICK_MS;
 int P_SPIN_BRAKE_MS = SPIN_BRAKE_MS;
@@ -330,6 +338,10 @@ int P_SPIN_BRAKE_MS = SPIN_BRAKE_MS;
 #define TURN_MODE P_TURN_MODE
 #undef SPIN_DUTY
 #define SPIN_DUTY P_SPIN_DUTY
+#undef DECIDE_MS
+#define DECIDE_MS P_DECIDE_MS
+#undef CROSS_LOOKBACK_MS
+#define CROSS_LOOKBACK_MS P_CROSS_LOOKBACK_MS
 #undef SPIN_KICK_PWM
 #define SPIN_KICK_PWM P_SPIN_KICK_PWM
 #undef SPIN_KICK_MS
@@ -390,6 +402,8 @@ int turnForwardMs = TURN_FORWARD_MS;
 int uturnIgnoreMs = UTURN_IGNORE_MS;   // 유턴: 처음 이만큼 선을 무시하고 돎 — 시리얼 < > 로 ±100ms, 보드에 기억
 int uturnBackMs = UTURN_BACK_MS;       // 유턴 전에 뒤로 가는 시간 — 시리얼 [ ] 아님, { } 로 ±50ms   // 교차로 감지 뒤 더 가는 시간 — 시리얼 , . 로 바꾸고 보드에 기억
 bool junctionL = false, junctionR = false;   // 이번 교차로에서 선을 본 옆 센서
+unsigned long decideStart = 0;   // 분기/T자 결정 대기 시작 (moveMs+1, 0 = 대기 아님)
+unsigned long frontBothMove = 0; // 앞 센서 둘이 동시에 검정이었던 때 (moveMs+1)
 bool junctionArmed = true;       // 회전 뒤에는 옆 센서가 방금 지난 선(제자리 회전이라 옆 센서 밑에 남음)을 벗어나 바닥을 본 뒤에야 다시 교차로를 셈
 unsigned long sideClearSince = 0;
 unsigned long frontLSeenMove = 0, frontRSeenMove = 0;   // 앞 왼쪽·오른쪽이 마지막으로 검정을 본 때(움직인 시간) — 분기는 앞 → 뒤 순서로 지나감
@@ -671,10 +685,26 @@ bool junctionSeen(bool allowed) {
     junctionSince = 0;
     return false;
   }
-  if (!allowed || (long)(moveMs - junctionIgnoreMove) < 0 || !(l || r)) { junctionSince = 0; return false; }
-  if (!junctionSince) { junctionSince = now; junctionL = junctionR = false; }
-  junctionL = junctionL || l; junctionR = junctionR || r;   // 어느 쪽에 선이 있었는지 (분기 시험용)
-  return now - junctionSince >= JUNCTION_MS;
+  // 앞 센서 두 개가 동시에 검정 = 가로로 지나가는 선(T자 가로선·본선)을 넘음 → 기억해 두었다가 T자 판단에 씀
+  if (sFrontL() && sFrontR()) frontBothMove = moveMs + 1;
+  if (!allowed || (long)(moveMs - junctionIgnoreMove) < 0) { junctionSince = 0; decideStart = 0; return false; }
+  // ① 후보: 뒤 센서 한쪽이 JUNCTION_MS 넘게 계속 선을 봄
+  if (!decideStart) {
+    if (!(l || r)) { junctionSince = 0; return false; }
+    if (!junctionSince) junctionSince = now;
+    if (now - junctionSince < (unsigned long)JUNCTION_MS) return false;
+    decideStart = moveMs + 1;
+    junctionL = l; junctionR = r;
+  }
+  // ② 결정 대기: DECIDE_MS(바퀴 돌린 시간) 동안 반대쪽도 보는지 지켜봄
+  junctionL = junctionL || l; junctionR = junctionR || r;
+  if (moveMs + 1 - decideStart < (unsigned long)DECIDE_MS) return false;
+  // ③ 결정: 양쪽 다 봤거나, 직전에 앞 센서 둘이 동시에 검정(가로선) → T자. 아니면 본 쪽 분기
+  bool frontCross = frontBothMove && moveMs + 1 - frontBothMove <= (unsigned long)(DECIDE_MS + CROSS_LOOKBACK_MS);
+  if (frontCross && !(junctionL && junctionR)) { junctionL = junctionR = true; Out.println("[판단] 앞 센서 둘이 가로선을 지남 → T자"); }
+  else Out.printf("[판단] %s\n", junctionL && junctionR ? "뒤 센서 양쪽 → T자" : junctionL ? "뒤 왼쪽만 → 왼쪽 분기" : "뒤 오른쪽만 → 오른쪽 분기");
+  decideStart = 0; junctionSince = 0;
+  return true;
 }
 void logDrive(const char* tag) {
   if (!verbose || millis() - lastLog < 100) return;
@@ -909,6 +939,7 @@ bool doTurn(char t, char want, bool atJunction) {
   if (ok && want != '-') heading = want;
   junctionIgnoreMove = moveMs + JUNCTION_COOLDOWN_MS;   // 방금 지난 교차로 선을 다시 세지 않게 (움직인 시간 기준)
   junctionArmed = false; sideClearSince = 0;            // 옆 센서가 그 선을 벗어나 바닥을 본 뒤에야 다음 교차로
+  decideStart = 0; frontBothMove = 0;
   junctionSince = 0;
   followReset();
   Out.printf("[회전] %c → 방향 %c %s\n", t, want, ok ? "" : "(선을 못 찾음)");
@@ -1498,7 +1529,9 @@ Param params[] = {
   {"arcTimeout", &P_ARC_TIMEOUT_MS, 500, 20000, "회전 최대 시간(ms)"},
   {"turnPause", &P_TURN_PAUSE_MS, 0, 5000, "분기·끝에서 멈추는 시간(ms)"},
   {"juncMs", &P_JUNCTION_MS, 0, 1000, "분기 확정 시간(ms)"},
-  {"pairMs", &P_BRANCH_PAIR_MS, 0, 5000, "분기: 앞→뒤 센서 사이 최대(ms)"},
+  {"pairMs", &P_BRANCH_PAIR_MS, 0, 5000, "분기: 앞→뒤 센서 사이 최대(ms), 0 = 뒤 센서만"},
+  {"decideMs", &P_DECIDE_MS, 0, 2000, "분기/T자 결정: 첫 뒤 센서 뒤 반대쪽을 기다리는 시간(ms)"},
+  {"crossMs", &P_CROSS_LOOKBACK_MS, 0, 5000, "T자 판단: 앞 센서 둘이 동시에 검정이었던 걸 돌아보는 시간(ms)"},
   {"juncCool", &P_JUNCTION_COOLDOWN_MS, 0, 5000, "회전 뒤 분기 무시(ms)"},
   {"backPwm", &P_BACK_PWM, 0, 255, "뒤로 가기 세기"},
   {"backExtra", &P_BACK_EXTRA_MS, 0, 3000, "본선에 닿은 뒤 더 물러나기(ms)"},
