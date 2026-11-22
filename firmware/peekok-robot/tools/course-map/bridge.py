@@ -21,6 +21,7 @@ SETTINGS = os.path.join(HERE, '.settings.json')   # 지도 방향(뒤집기) 기
 
 # ───────── 지도 (사진의 코스를 그대로 옮김, 단위 = 사진 픽셀) ─────────
 MID_Y = 455
+MID_X = (68 + 1075) / 2    # 좌우 뒤집기 기준
 NODES = {
     'S': (1075, 455), 'J1': (810, 455), 'J2': (575, 455), 'J3': (315, 455), 'J4': (175, 455), 'F': (68, 455),
     'B1': (810, 762), 'B2': (575, 172), 'B3': (315, 762), 'B4': (175, 205),
@@ -43,11 +44,13 @@ class Locator:
     def __init__(self):
         # 지도를 위아래로 뒤집었는지 — 처음 값은 '출발해서 첫 분기가 오른쪽'(사진은 반대쪽에서 찍힘)
         self.flip = True
+        self.mirror = True         # 좌우 뒤집기: 출발점이 왼쪽, 출발해서 분기 1 이 로봇 왼쪽 (사용자 확인)
         self.flip_known = False    # 실제 주행이나 버튼으로 방향을 확인했는지
         try:
             with open(SETTINGS) as f: st = json.load(f)
             self.flip = bool(st['flip']); self.flip_known = True
             self.speed = float(st.get('speed', self.speed))
+            self.mirror = bool(st.get('mirror', self.mirror))
         except (OSError, ValueError, KeyError):
             pass
         self.plan_pts = []; self.plan_route = ''; self.plan_names = []
@@ -58,6 +61,7 @@ class Locator:
     # ── 기하 ──
     def p(self, n):
         x, y = NODES[n]
+        if self.mirror: x = 2 * MID_X - x
         return (x, 2 * MID_Y - y) if self.flip else (x, y)
 
     def length(self, a, b):
@@ -96,7 +100,7 @@ class Locator:
     # ── 상태 ──
     def save_flip(self):
         try:
-            with open(SETTINGS, 'w') as f: json.dump({'flip': self.flip, 'speed': round(self.speed, 2)}, f)
+            with open(SETTINGS, 'w') as f: json.dump({'flip': self.flip, 'mirror': self.mirror, 'speed': round(self.speed, 2)}, f)
         except OSError:
             pass
 
@@ -509,6 +513,9 @@ def command(text):
     text = text.strip()
     if text == 'reset': LOC.reset(); return
     if text == 'flip': LOC.set_flip(not LOC.flip); return
+    if text == 'mirror':
+        with LOC.lock: LOC.mirror = not LOC.mirror
+        LOC.set_flip(LOC.flip); return
     if text.startswith('go'):
         targets = text[2:].replace(',', ' ').replace('→', ' ').split()
         route, pts, steps, err = LOC.plan(targets)
