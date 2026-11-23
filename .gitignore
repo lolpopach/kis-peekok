@@ -3,3 +3,4 @@ node_modules/
 .dev.vars
 .DS_Store
 firmware/**/config.h
+firmware/peekok-robot/tools/course-map/.settings.json

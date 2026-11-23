@@ -22,6 +22,11 @@
   한 파일(`peekok-robot.ino`)이 `#if defined(ESP32)` 로 라이브러리·핀·아날로그 읽기만 나누고 주행 로직은 공유한다.
   ESP32·ESP8266 모두 글자 형식 API(`GET /api/robot/drive`, POST `?fmt=text`, `lib/shared.js` 의 `driveText`)를 쓴다 — 형식을 바꾸면 펌웨어도 같이 바꾼다.
   교차로에서는 서버가 준 action(경로 모양 기준)을 따르고, 방향(N/E/S/W)은 출발할 때 몸 돌리기에만 쓴다(대각선 구간 때문).
+  센서 배치(사용자 결정): 라인 센서 4개 — 앞 왼쪽 IO14·앞 오른쪽 IO33(차체 맨 앞, 선을 사이에 둠 → 선 따라가기),
+  차체(뒤) 왼쪽 IO35·오른쪽 IO27 (IO32 는 IO33 과 신호가 옮겨붙어 안 씀, IO35 외 센서 핀은 INPUT_PULLUP)(선에서 6~7cm 바깥 → 교차로 감지). 선 끝은 센서로 못 알아서 끝에 가로선을 붙인다.
+  좌우 모터 힘이 달라서 보정값(motorTrim)을 모든 바퀴 세기에 곱하고, 선 따라가며 스스로 배워 보드(Preferences)에 저장한다(시리얼 b·[·]·z).
+  오른쪽 바퀴는 반대 배선(RIGHT_INVERT 1). 초음파는 지금 안 씀(IO14 를 센서가 씀, 다시 달면 PIN_SONAR_TRIG).
+  시리얼 `t` = 선 따라가기 시험(점수·조정 안내, 대기 중 BOOT 버튼도), `k` = 서버 없이 TEST_ROUTE 코스 시험, `v` = 주행 기록(센서 4개·바퀴). WiFi 는 기다리지 않고(loop 에서 연결) 시험 명령은 WiFi 없이도 된다.
   펌웨어 점검: `bash firmware/peekok-robot/test/run.sh` (호스트 g++ + Arduino 흉내 헤더로 컴파일하고 서버 driveText 응답으로 논리 시험,
   항상 ESP8266 코드 경로지만 공유 로직이라 ESP32 쪽도 같이 검증됨). 실제 보드 컴파일·업로드는 보드가 꽂힌 사용자 Mac 의 Claude CLI 세션에서 `arduino-cli`
   (`arduino-cli compile --fqbn esp32:esp32:esp32 -u -p <포트> firmware/peekok-robot`, ESP8266 은 `esp8266:esp8266:nodemcuv2`)로 한다.
@@ -29,8 +34,14 @@
   Mac 에서 시리얼 읽기: 포트는 `ls /dev/cu.usbserial-*`(다시 꽂으면 이름이 바뀜), 업로드가 끊기면 `UploadSpeed=115200`.
   Mac 에는 `timeout` 이 없고 `arduino-cli monitor` 는 시간 제한을 걸면 아무것도 안 나오니, 포트를 직접 열어 시간 제한(perl 등)을 걸고 읽는다.
   펌웨어는 켤 때만 연결 로그를 찍으므로 esptool 로 보드를 재시작한 뒤 읽는다. config.h 의 WiFi 비밀번호·로봇 키는 출력하지 않는다.
+  무선: 로봇이 WiFi 에 붙으면 시리얼을 TCP 2323(peekok-robot.local)으로도 보내고, ArduinoOTA 로 무선 업로드(비밀번호 = config.h OTA_PASS 또는 ROBOT_KEY).
+  `firmware/peekok-robot/tools/upload.sh`(USB 있으면 USB, 없으면 WiFi — espota 는 .local 을 못 찾을 때가 있어 IP 로 바꿔 넘김), `tools/run.pl`(USB 없으면 WiFi).
+  사용자 Mac `~/.zshrc` 에 `run`·`upload` 별칭. Mac 과 로봇이 같은 WiFi 여야 함(Mac 이 다른 WiFi 로 자동 재접속하면 무선이 안 됨).
   서버 쪽 확인: D1 `robot.body_seen_at`(몸체 마지막 인증 접속)·`seen_at`(로봇 화면) — 클라우드 세션이 Cloudflare API 로 본다.
   WiFi: ESP32 는 2.4GHz 만, iPhone 핫스팟은 '호환성 최대화' + 설정 화면을 열어 둬야 보임(172.20.10.x). 시험 중엔 iPhone 핫스팟 `zzzz` 사용.
+- **시범 코스**(사용자 결정): 로봇은 4층 12학년 12-1~12-5 만 다닌다. 선 모양 = `data.js` 의 `robotCourse`(4층 도면 좌표, 제자리 12-5 앞 `H5`),
+  `Router.robotPlan` 은 이 선 위에서만 계획(코스 밖 방은 null → 부르기·데려다주기에서 빠짐), 바닥 테이프 붙이는 법 `docs/prototype-course.md`.
+  펌웨어 `END_BY_MARK 1`: 서버 주행도 시간으로 거르지 않고 갈림길마다 다음 노드 동작, 끝 가로선(T)에서 도착. `HOME_HEADING 'E'`.
 - 길 안내 방식 두 가지(`public/js/guide.js`): 길 안내 화면에서 "데려다주세요"(로봇이 문 앞까지 앞장섬, 로봇 상태 guiding → guided → returning)
   또는 "QR로 받을게요"(휴대폰 길 안내). 데려다주기도 배달과 같은 주행 계획·위치 추정·로봇 API 를 쓴다.
 - D1: `kis-peekok` (id 는 wrangler.toml), 구조 `db/schema.sql` (서버가 처음 요청 때 `CREATE TABLE IF NOT EXISTS` 로 만들기도 함).

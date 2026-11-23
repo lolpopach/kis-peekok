@@ -13,7 +13,8 @@ KIS.CONFIG = {
   publicUrl: 'https://kis-peekok.pages.dev/',
 
   // 로봇이 서 있는 위치 (도면 좌표, js/data.js 와 같은 좌표계)
-  robotLocation: { floor: 1, x: 325, y: 391, label: '1층 현관 로비' },
+  // 시범 코스(data.js robotCourse)에서는 12-5반 앞 = 출발·제자리 (선 끝 H5, 복도 쪽 = 동쪽을 보고 둠)
+  robotLocation: { floor: 4, x: 70, y: 564.5, label: '12-5반 앞' },
 
   idleTimeoutSec: 90,      // 아무 입력이 없으면 얼굴 화면으로 돌아가는 시간(초)
   faceCaptions: true,      // 얼굴 화면에서 가끔 자막으로 말 걸기 ("저를 터치하면 길을 안내해 드려요")

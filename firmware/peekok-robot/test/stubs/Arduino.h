@@ -31,6 +31,9 @@ inline int analogRead(int) { return fake_analog; }
 inline void analogWrite(int p, int v) { fake_pwm[p] = v; }
 inline void analogWriteRange(int) {}
 inline void analogWriteFreq(int) {}
+inline void delayMicroseconds(unsigned int) {}
+extern unsigned long fake_pulse_us;   // 초음파 메아리 길이(0 = 메아리 없음)
+inline unsigned long pulseIn(int, int, unsigned long timeout) { return fake_pulse_us > timeout ? 0 : fake_pulse_us; }
 
 class String {
  public:
@@ -70,6 +73,7 @@ struct FakeSerial {
   void print(const char* t) { fputs(t, stdout); }
   void print(char c) { fputc(c, stdout); }
   void println(const char* t) { puts(t); }
+  void println() { puts(""); }
   void printf(const char* f, ...) { va_list a; va_start(a, f); vprintf(f, a); va_end(a); }
 };
 extern FakeSerial Serial;

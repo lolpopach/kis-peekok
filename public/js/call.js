@@ -16,15 +16,17 @@
   let client = store.get('kis-client');
   if (!client) { client = Math.random().toString(36).slice(2) + Date.now().toString(36); store.set('kis-client', client); }
 
-  const callable = D.rooms().filter((r) => r.searchable && !['restroom', 'elev'].includes(r.cat));
+  // 시범 코스가 있으면 코스에 있는 방만 부를 수 있음
+  const callable = D.rooms().filter((r) => r.searchable && !['restroom', 'elev'].includes(r.cat) && (!RT.robotCourse || RT.robotReachable(r)));
+  const callFloors = D.floors.filter((f) => callable.some((r) => r.floor === f.id));
   const GROUPS = [['class', 'classroom'], ['office', 'office'], ['special', 'flask'], ['facility', 'star']];
   const KINDS = [['docs', 'book'], ['item', 'box'], ['food', 'coffee'], ['other', 'chat']];
   const KIND_KO = { docs: '서류', item: '물건', food: '간식·음료', other: '' };
   const nameOf = (r) => (r ? L.roomName(r) : '');
-  const reachable = (r) => !!RT.robotPlan(CFG.robotLocation, r);
+  const reachable = (r) => RT.robotReachable(r);
   const sortRooms = (a, b) => (a.group === 'class' && b.group === 'class' ? a.grade - b.grade || a.klass - b.klass : nameOf(a).localeCompare(nameOf(b), L.lang, { numeric: true }));
 
-  const form = { step: 1, floor: 1, place: null, dest: null, q: '', kind: '', note: '', recipient: '', memo: '', caller: store.get('kis-caller-name') || '' };
+  const form = { step: 1, floor: (callFloors[0] || D.floors[0]).id, place: null, dest: null, q: '', kind: '', note: '', recipient: '', memo: '', caller: store.get('kis-caller-name') || '' };
   const LAST = 4;
   let active = store.get('kis-call');   // { id, token }
   let last = null, skew = 0, pollT = null, mapView = null, mapFloor = null, liveT = null, robotNow = null, errMsg = '', cancelArm = false;
@@ -122,7 +124,7 @@
       ${cur ? placeCard('unpick', true, cur) : `
       <label class="c-search">${I('search')}<input id="c-q" type="search" placeholder="${esc(t('searchPh'))}" autocomplete="off" enterkeyhint="search" value="${esc(form.q)}"></label>
       ${recent.length ? `<div class="c-recent"><span>${esc(t('recent'))}</span><div>${recent.map((r) => `<button type="button" data-room="${esc(r.id)}">${I('star')}${esc(nameOf(r))}</button>`).join('')}</div></div>` : ''}
-      <div class="c-floors" id="c-floors">${D.floors.map((f) => `<button type="button" data-floor="${f.id}"><b>${f.id}</b>${esc(t('floorShort'))}</button>`).join('')}</div>
+      <div class="c-floors" id="c-floors">${callFloors.map((f) => `<button type="button" data-floor="${f.id}"><b>${f.id}</b>${esc(t('floorShort'))}</button>`).join('')}</div>
       <div class="c-rooms" id="c-rooms"></div>`}
     </section>`;
   }

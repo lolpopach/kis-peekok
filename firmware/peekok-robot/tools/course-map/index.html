@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>피콕 코스 지도</title>
+<style>
+  :root { --ink: #111; --robot: #e5484d; --muted: #6b6b6b; --line: #e6e6e6; --ok: #2f9e44; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #fff; color: var(--ink); font-family: -apple-system, "Apple SD Gothic Neo", system-ui, sans-serif; }
+  main { display: grid; grid-template-columns: 1fr 340px; height: 100vh; }
+  .map { position: relative; padding: 16px; display: flex; flex-direction: column; min-width: 0; }
+  svg { flex: 1; width: 100%; min-height: 0; }
+  .road { stroke: var(--ink); stroke-width: 14; stroke-linecap: square; }
+  .plan { fill: none; stroke: #3b82f6; stroke-width: 26; stroke-linejoin: round; stroke-linecap: round; opacity: .25; }
+  .target { cursor: pointer; }
+  .target circle { fill: #fff; stroke: #3b82f6; stroke-width: 4; }
+  .target text { fill: #3b82f6; font-size: 26px; font-weight: 700; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+  .target.picked circle { fill: #3b82f6; }
+  .target.picked text { fill: #fff; }
+  .goal { border: 1px solid #3b82f6; border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .goal .q { font-size: 20px; font-weight: 700; color: #3b82f6; min-height: 28px; }
+  .goal .hint { font-size: 13px; color: var(--muted); }
+  .goal .route { font-family: ui-monospace, monospace; font-size: 13px; color: var(--muted); }
+  button.go { background: #3b82f6; border-color: #3b82f6; color: #fff; }
+  .warn { font-size: 13px; color: #b45309; }
+  .trail { fill: none; stroke: var(--robot); stroke-width: 3; stroke-dasharray: 6 8; opacity: .5; }
+  .label { font-size: 22px; fill: var(--muted); }
+  #robot.turning circle { animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .55; } }
+  .status { display: flex; gap: 24px; align-items: baseline; flex-wrap: wrap; }
+  .where { font-size: 28px; font-weight: 700; }
+  .what { font-size: 18px; color: var(--muted); }
+  aside { border-left: 1px solid var(--line); padding: 16px; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+  .conn { font-size: 14px; color: var(--muted); }
+  .conn b { color: var(--robot); }
+  .conn.on b { color: var(--ok); }
+  .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  button { font: inherit; font-size: 16px; padding: 12px; border: 1px solid var(--ink); background: #fff; border-radius: 8px; cursor: pointer; }
+  button.main { background: var(--ink); color: #fff; }
+  button.stop { background: var(--robot); border-color: var(--robot); color: #fff; }
+  form { display: flex; gap: 8px; }
+  input { flex: 1; font: inherit; padding: 10px; border: 1px solid #ccc; border-radius: 8px; min-width: 0; }
+  h2 { font-size: 14px; margin: 4px 0 0; color: var(--muted); font-weight: 600; }
+  ol, pre { margin: 0; font-size: 13px; overflow: auto; }
+  ol { padding-left: 18px; max-height: 30vh; }
+  ol li { margin: 2px 0; }
+  ol li span { color: var(--muted); margin-right: 6px; }
+  pre { flex: 1; background: #fafafa; border: 1px solid var(--line); border-radius: 8px; padding: 8px; white-space: pre-wrap; min-height: 80px; }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; height: auto; } aside { border-left: 0; border-top: 1px solid var(--line); } svg { height: 60vh; } }
+</style>
+</head>
+<body>
+<main>
+  <section class="map">
+    <div class="status"><div class="where" id="where">—</div><div class="what" id="what"></div></div>
+    <svg viewBox="20 100 1110 720" preserveAspectRatio="xMidYMid meet" aria-label="코스 지도">
+      <polyline id="plan" class="plan"></polyline>
+      <g id="roads"></g>
+      <g id="labels"></g>
+      <polyline id="trail" class="trail"></polyline>
+      <g id="targets"></g>
+      <g id="robot">
+        <circle r="24" fill="var(--robot)"></circle>
+        <path d="M 30 0 L 8 -14 L 8 14 Z" fill="#fff" stroke="var(--robot)" stroke-width="3"></path>
+      </g>
+    </svg>
+  </section>
+  <aside>
+    <div class="conn" id="conn">연결 확인 중…</div>
+    <div class="goal">
+      <div class="hint">지도의 파란 동그라미를 가고 싶은 순서대로 누르세요</div>
+      <div class="q" id="queue">목적지 없음</div>
+      <div class="route" id="route"></div>
+      <div class="warn" id="flipwarn" hidden>왼쪽/오른쪽 방향을 아직 확인 못 했어요 — 출발점에서 보면 분기 1 이 로봇 왼쪽인지 확인하고, 반대면 '지도 위아래 뒤집기'</div>
+      <div class="btns"><button class="go" id="go">이 순서로 가기</button><button id="clear">지우기</button></div>
+    </div>
+    <div class="btns">
+      <button class="main" data-cmd="j">자동 주행 (분기 따라)</button>
+      <button class="stop" data-cmd="x">멈춤</button>
+      <button data-cmd="reset">위치를 출발점으로</button>
+      <button data-cmd="flip">지도 위아래 뒤집기</button>
+      <button data-cmd="mirror">지도 좌우 뒤집기</button>
+    </div>
+    <form id="send"><input id="text" placeholder="로봇에 보낼 명령 (예: P, PuPwm=80)" autocomplete="off"><button>보내기</button></form>
+    <h2>위치 기록</h2>
+    <ol id="events"></ol>
+    <h2>로봇 기록</h2>
+    <pre id="log"></pre>
+  </aside>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const NS = 'http://www.w3.org/2000/svg';
+let mapKey = '';
+
+function el(tag, attrs) { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; }
+
+function drawMap(s) {
+  const key = JSON.stringify(s.lines) + s.flip;
+  if (key === mapKey) return;
+  mapKey = key;
+  const roads = $('roads'), labels = $('labels');
+  roads.replaceChildren(); labels.replaceChildren();
+  for (const [x1, y1, x2, y2] of [...s.lines, ...s.caps]) roads.append(el('line', { x1, y1, x2, y2, class: 'road' }));
+  for (const l of s.labels) {
+    if (l.kind === 'J') continue;
+    const t = el('text', { x: l.x, y: l.y + (l.kind === 'B' ? (l.y < 455 ? -30 : 50) : 85), class: 'label', 'text-anchor': 'middle' });
+    t.textContent = l.name; labels.append(t);
+  }
+  for (const l of s.labels.filter((l) => l.kind === 'J')) {
+    const below = s.labels.find((b) => b.name === l.name + ' 끝').y < 455;
+    const t = el('text', { x: l.x + 14, y: l.y + (below ? 40 : -22), class: 'label' });
+    t.textContent = l.name; labels.append(t);
+  }
+}
+
+// 로봇 표시: 서버 위치를 0.15초 시간상수로 부드럽게 따라감 (보정할 때 순간이동 대신 미끄러지듯)
+let target = null, shown = null, trailPts = [], lastFrame = performance.now();
+function frame(now) {
+  const dt = Math.min(0.1, (now - lastFrame) / 1000); lastFrame = now;
+  if (target && shown) {
+    const k = 1 - Math.exp(-dt / 0.15);
+    shown.x += (target.x - shown.x) * k; shown.y += (target.y - shown.y) * k;
+    let da = ((target.a - shown.a + 540) % 360) - 180;   // 가까운 쪽으로 돌기
+    shown.a += da * k;
+    $('robot').setAttribute('transform', `translate(${shown.x} ${shown.y}) rotate(${shown.a})`);
+    $('trail').setAttribute('points', [...trailPts, [shown.x, shown.y]].map((p) => p.join(',')).join(' '));
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+let picks = [];
+const label = (k) => k === 'F' ? '끝점' : k;
+function setPicks(p) {
+  picks = p;
+  $('queue').textContent = picks.length ? picks.map(label).join(' → ') : '목적지 없음';
+  send('plan ' + picks.join(' '));
+}
+function drawTargets(s) {
+  const g = $('targets');
+  const key = JSON.stringify(s.targets);   // 뒤집기(위아래·좌우)로 자리가 바뀌면 다시 그림
+  if (g.dataset.key !== key) {
+    g.replaceChildren(); g.dataset.key = key;
+    for (const t of s.targets) {
+      const grp = el('g', { class: 'target', transform: `translate(${t.x} ${t.y})` });
+      grp.dataset.key = t.key;
+      grp.append(el('circle', { r: 26 }));
+      const tx = el('text', {}); tx.textContent = t.key === 'F' ? '끝' : t.key; grp.append(tx);
+      grp.addEventListener('click', () => { if (picks[picks.length - 1] !== t.key) setPicks([...picks, t.key]); });
+      g.append(grp);
+    }
+  }
+  const last = picks[picks.length - 1];
+  for (const grp of g.children) grp.classList.toggle('picked', picks.includes(grp.dataset.key));
+}
+
+const es = new EventSource('/events');
+es.onmessage = (m) => {
+  const s = JSON.parse(m.data);
+  if (!s.targets) {   // 예전 bridge.py 가 켜져 있음 → 새 기능 데이터가 없음
+    $('conn').innerHTML = '<b>●</b> 지도 프로그램이 예전 버전이에요 — 터미널에서 Ctrl+C 로 끄고 다시 실행해 주세요';
+    $('conn').className = 'conn';
+    return;
+  }
+  drawMap(s);
+  drawTargets(s);
+  $('plan').setAttribute('points', (s.plan || []).map((p) => p.join(',')).join(' '));
+  $('route').textContent = s.route ? `경로 글자: ${s.route}  (S 직진 · L 좌 · R 우 · V 도착 후 유턴 · E 도착 · u 먼저 유턴)` : '';
+  $('flipwarn').hidden = s.flip_known;
+  const r = $('robot');
+  target = { x: s.x, y: s.y, a: s.angle };
+  if (!shown) shown = { ...target };
+  r.classList.toggle('turning', s.mode === 'turning' || s.mode === 'junction');
+  trailPts = s.trail;
+  $('where').textContent = s.where;
+  $('what').textContent = s.status + ` · 추정 속도 ${s.speed}px/초`;
+  const c = $('conn');
+  c.className = 'conn' + (s.connected ? ' on' : '');
+  c.innerHTML = s.demo ? '<b>●</b> 데모 모드 (로봇 없이 가짜 기록)' : s.connected ? `<b>●</b> 로봇 연결됨 (${s.host})` : `<b>●</b> 로봇 연결 안 됨 (${s.host}) — 같은 WiFi 인지 확인`;
+  $('events').replaceChildren(...s.events.slice().reverse().map((e) => { const li = document.createElement('li'); li.innerHTML = `<span>${e.t}</span>`; li.append(e.msg); return li; }));
+  const log = $('log'), atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 4;
+  log.textContent = s.log.join('\n');
+  if (atBottom) log.scrollTop = log.scrollHeight;
+};
+es.onerror = () => { $('conn').innerHTML = '<b>●</b> 지도 프로그램(bridge.py)과 연결이 끊김'; $('conn').className = 'conn'; };
+
+function send(cmd) { return fetch('/cmd', { method: 'POST', body: cmd }); }
+$('go').addEventListener('click', () => { if (picks.length) { send('go ' + picks.join(' ')); picks = []; $('queue').textContent = '출발!'; } });
+$('clear').addEventListener('click', () => setPicks([]));
+document.querySelectorAll('[data-cmd]').forEach((b) => b.addEventListener('click', () => send(b.dataset.cmd)));
+$('send').addEventListener('submit', (e) => { e.preventDefault(); const v = $('text').value.trim(); if (v) send(v); $('text').value = ''; });
+</script>
+</body>
+</html>
