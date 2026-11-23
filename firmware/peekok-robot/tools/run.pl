@@ -2,7 +2,7 @@
 # 피콕 로봇 시험 바로 실행 (업로드 없음): 보드에 시험 명령을 보내고 시리얼을 보여 준다.
 #   run        분기 시험 (j): 한쪽 분기 → 그쪽으로 회전, 양쪽이면 멈춤
 #   run k      순서 코스 시험
-#   run j      분기 시험 · run h 멈춤 시험 · run t 선 따라가기 시험 · run s 센서 보기
+#   run j      분기 시험 · run h 멈춤 시험 · run t 선 따라가기 시험 · run s 센서 보기 (끝낼 때까지 계속)
 #   run v      분기 시험 + 0.1초마다 센서·바퀴 기록
 #   run -      아무 시험도 안 하고 시리얼만 보기
 #   run w ...  USB 가 꽂혀 있어도 WiFi 로 (USB 가 없으면 자동으로 WiFi)
@@ -50,6 +50,7 @@ print "[$port 연결] 2초 뒤 시작 · 글자+엔터 = 보드로 보내기 · 
 my $sel = IO::Select->new($f, \*STDIN);
 my $t0 = time;
 my $started = 0;
+my $lastS = 0;      # run s: 펌웨어 센서 보기는 5초짜리라 끝나기 전에 다시 보냄
 while (1) {
   for my $h ($sel->can_read(0.1)) {
     if ($h == $f) {
@@ -71,5 +72,7 @@ while (1) {
     syswrite($f, "x"); select(undef, undef, undef, 0.4);
     if ($verbose) { syswrite($f, "v"); select(undef, undef, undef, 0.4); }
     syswrite($f, $mode);
+    $lastS = time;
   }
+  if ($started && $mode eq 's' && time - $lastS >= 5) { syswrite($f, 's'); $lastS = time; }
 }
