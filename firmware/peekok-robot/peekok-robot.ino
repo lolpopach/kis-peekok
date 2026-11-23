@@ -1631,6 +1631,7 @@ void loop() {
         lastPoll = millis();
         if (pollDrive()) {
           bool moving = serverMode == "to_caller" || serverMode == "delivering" || serverMode == "guiding" || serverMode == "returning";
+          if (!moving) doneRev = "";               // 서버가 쉬는 중이면 '끝낸 계획' 기억을 지움 → 같은 목적지를 다시 보내도 출발
           if (moving && planLen >= 2 && planRev != doneRev) {
             if (state == ST_ERROR) Out.println("[다시 시도] 새 계획");
             beginPlan();
