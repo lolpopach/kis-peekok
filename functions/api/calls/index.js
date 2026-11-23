@@ -1,5 +1,6 @@
 // POST /api/calls — 누구나: 로봇 부르기
-//   body: { from_room, from_label, caller?, note?, client? }
+//   body: { from_room, from_label, caller?, note?, client?, to_room?, to_label?, recipient?, memo? }
+//   받는 곳(to_room)을 휴대폰에서 미리 정하면, 로봇이 도착했을 때 로봇 화면은 '물건을 넣고 화면을 눌러 주세요'만 보여 준다.
 //   돌려줌: { id, token }  (token 은 부른 사람 기기에만 저장 — 상태 보기·취소에 필요)
 import {
   getDb, json, handle, readBody, text, roomId, newId, expireOld, HttpError, ACTIVE_SQL,
@@ -14,6 +15,11 @@ export const onRequestPost = handle(async ({ request, env }) => {
   const caller = text(b.caller, 30);
   const note = text(b.note, 80);
   const client = text(b.client, 40);
+  const toRoom = b.to_room ? roomId(b.to_room) : null;
+  if (toRoom && toRoom === fromRoom) throw new HttpError(400, '부를 곳과 받는 곳이 같아요');
+  const toLabel = toRoom ? text(b.to_label, 60) : null;
+  const recipient = text(b.recipient, 30);
+  const memo = text(b.memo, 120);
   const ip = request.headers.get('cf-connecting-ip') || '';
   const t = Date.now();
 
@@ -31,8 +37,9 @@ export const onRequestPost = handle(async ({ request, env }) => {
   const id = newId(8);
   const token = newId(24);
   await db.prepare(
-    `INSERT INTO calls (id, token, status, kind, from_room, from_label, caller, caller_note, client, ip, created_at, updated_at)
-     VALUES (?, ?, 'waiting', 'call', ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(id, token, fromRoom, fromLabel, caller, note, client, ip, t, t).run();
+    `INSERT INTO calls (id, token, status, kind, from_room, from_label, caller, caller_note, to_room, to_label, recipient, memo,
+       client, ip, created_at, updated_at)
+     VALUES (?, ?, 'waiting', 'call', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(id, token, fromRoom, fromLabel, caller, note, toRoom, toLabel, recipient, memo, client, ip, t, t).run();
   return json({ ok: true, id, token }, 201);
 });

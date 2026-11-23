@@ -148,9 +148,11 @@ KIS.faceBehavior = function (svg, opts = {}) {
 
   function onPointer(e) {
     if (!opts.follow || !svg.isConnected || !svg.getClientRects().length) return;
-    const b = svg.getBoundingClientRect();
+    // 화면을 돌려 쓰는 중이면(항상 가로) 돌린 화면 안의 좌표로 바꿔 계산
+    const b = KIS.rect ? KIS.rect(svg) : svg.getBoundingClientRect();
+    const p = KIS.unrotate ? KIS.unrotate(e.clientX, e.clientY) : { x: e.clientX, y: e.clientY };
     lastPointer = Date.now();
-    look((e.clientX - (b.left + b.width / 2)) / (b.width * 0.6), (e.clientY - (b.top + b.height * 0.5)) / (b.height * 0.6));
+    look((p.x - (b.left + b.width / 2)) / (b.width * 0.6), (p.y - (b.top + b.height * 0.5)) / (b.height * 0.6));
   }
   if (opts.follow) window.addEventListener('pointermove', onPointer, { passive: true });
   if (opts.follow) window.addEventListener('pointerdown', onPointer, { passive: true });
