@@ -12,7 +12,9 @@
 - `public/m.html` (`/m`): QR 로 여는 휴대폰 길 안내.
 
 ## 배달 시스템
-- 흐름: 휴대폰 호출(waiting) → 로봇 자동 수락(coming, 화면을 아무도 안 쓸 때만) → 도착(loading) → 받는 곳·받는 사람·메모 → 출발(delivering)
+- 흐름(사용자 결정, 2026-11): 휴대폰에서 부를 곳·받는 곳·받는 사람·메모까지 정해 호출(waiting) → 로봇 자동 수락(coming, 화면을 아무도 안 쓸 때만)
+  → 도착(loading): 휴대폰에 "피콕이 도착했어요"(진동·소리), 로봇 화면은 "물건을 다 넣었으면 화면을 눌러 주세요"(화면 전체가 출발 버튼) → 누르면 출발(delivering)
+  (로봇 앞에서 바로 보내기·받는 곳 없는 호출·"받는 곳 바꾸기"는 로봇 화면에서 받는 곳·받는 사람·메모를 고른다)
   → 도착(at_recipient) → 받았어요(delivered) → 로봇 제자리(returning → idle). 로봇 화면 쪽은 `public/js/delivery.js`.
 - 서버 API 와 로봇 몸체(라인 트레이스) 연결 규약: `docs/robot-api.md`. 노드 = `data.js` 의 nodes, 주행 계획 = `Router.robotPlan`,
   위치 추정 = `Router.locate`(노드 통과 보고 + 등속도). 로봇은 엘리베이터만 쓴다(사람이 태워 주고 FLASH 버튼/화면 "내렸어요").
