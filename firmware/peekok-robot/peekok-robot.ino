@@ -187,6 +187,9 @@
 #ifndef UTURN_DIR
 #define UTURN_DIR 'L'
 #endif
+#ifndef START_IGNORE_MS
+#define START_IGNORE_MS 1500   // 서버 주행 출발 직후 이만큼(바퀴 돌린 시간) 갈림길 무시 — 출발점 끝 가로선을 뒤 센서가 지나가는 동안
+#endif
 #ifndef END_BY_MARK
 #define END_BY_MARK 1          // 1 = 서버 주행도 갈림길마다 동작·끝 가로선(T)에서 도착 (시범 코스) · 0 = 예전 시간 기준
 #endif
@@ -212,6 +215,7 @@ int P_SPIN_KICK_MS = SPIN_KICK_MS;
 int P_SPIN_BRAKE_MS = SPIN_BRAKE_MS;
 int P_UTURN_IGNORE_MS = UTURN_IGNORE_MS;
 int P_MIN_PWM = MIN_PWM;
+int P_START_IGNORE_MS = START_IGNORE_MS;
 #undef JUNCTION_MS
 #define JUNCTION_MS P_JUNCTION_MS
 #undef DECIDE_MS
@@ -232,6 +236,8 @@ int P_MIN_PWM = MIN_PWM;
 #define UTURN_IGNORE_MS P_UTURN_IGNORE_MS
 #undef MIN_PWM
 #define MIN_PWM P_MIN_PWM
+#undef START_IGNORE_MS
+#define START_IGNORE_MS P_START_IGNORE_MS
 void paramCommand(const char* line);
 
 // ───────── 주행 계획 ─────────
@@ -929,6 +935,9 @@ void beginPlan() {
   Out.printf("[출발] 모드 %s\n", serverMode.c_str());
   state = ST_FOLLOW;
   if (!faceHeading(plan[0].heading)) { state = ST_ERROR; return; }
+  // 출발점 끝 가로선(T) 위에서 출발: 뒤 센서가 그 가로선을 지나가는 동안은 갈림길로 세지 않음 (바퀴 돌린 시간)
+  junctionIgnoreMove = moveMs + START_IGNORE_MS;
+  junctionArmed = false; sideClearSince = 0; decideStart = 0; junctionSince = 0;
   reportPassed(0);
   startLeg(0);
 }
@@ -1416,6 +1425,7 @@ Param params[] = {
   {"kickPwm", &P_SPIN_KICK_PWM, 0, 255, "유턴 출발 세기 (1초마다 다시)"},
   {"kickMs", &P_SPIN_KICK_MS, 0, 1000, "유턴 출발 세기 시간(ms)"},
   {"brakeMs", &P_SPIN_BRAKE_MS, 0, 300, "유턴 멈출 때 반대로 돌리는 시간(ms)"},
+  {"startIgnore", &P_START_IGNORE_MS, 0, 10000, "서버 주행 출발 직후 갈림길 무시(ms) — 출발점 가로선을 갈림길로 보면 늘리기, 첫 꺾이는 곳을 놓치면 줄이기"},
   {"uIgnore", &P_UTURN_IGNORE_MS, 0, 5000, "유턴 처음 선 무시 시간(ms) — 덜 돌고 서면 늘리기, 지나치면 줄이기"},
   {"minPwm", &P_MIN_PWM, 0, 255, "바퀴가 도는 최소 세기"},
 };
