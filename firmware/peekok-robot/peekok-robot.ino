@@ -187,6 +187,9 @@
 #ifndef UTURN_DIR
 #define UTURN_DIR 'L'
 #endif
+#ifndef CROSS_HOLD_MS
+#define CROSS_HOLD_MS 800      // 앞 두 센서가 같이 검정(갈림길 위)을 본 뒤 이만큼(바퀴 돌린 시간)은 한쪽 검정이어도 꺾지 않음
+#endif
 #ifndef START_IGNORE_MS
 #define START_IGNORE_MS 1500   // 서버 주행 출발 직후 이만큼(바퀴 돌린 시간) 갈림길 무시 — 출발점 끝 가로선을 뒤 센서가 지나가는 동안
 #endif
@@ -216,6 +219,7 @@ int P_SPIN_BRAKE_MS = SPIN_BRAKE_MS;
 int P_UTURN_IGNORE_MS = UTURN_IGNORE_MS;
 int P_MIN_PWM = MIN_PWM;
 int P_START_IGNORE_MS = START_IGNORE_MS;
+int P_CROSS_HOLD_MS = CROSS_HOLD_MS;
 #undef JUNCTION_MS
 #define JUNCTION_MS P_JUNCTION_MS
 #undef DECIDE_MS
@@ -238,6 +242,8 @@ int P_START_IGNORE_MS = START_IGNORE_MS;
 #define MIN_PWM P_MIN_PWM
 #undef START_IGNORE_MS
 #define START_IGNORE_MS P_START_IGNORE_MS
+#undef CROSS_HOLD_MS
+#define CROSS_HOLD_MS P_CROSS_HOLD_MS
 void paramCommand(const char* line);
 
 // ───────── 주행 계획 ─────────
@@ -261,8 +267,6 @@ enum State { ST_IDLE, ST_FOLLOW, ST_ELEVATOR, ST_ERROR, ST_TEST, ST_TRACE };
 State state = ST_IDLE;
 int legFrom = 0;              // 지금 달리는 구간: plan[legFrom] → plan[legFrom + 1]
 char heading = HOME_HEADING;  // 지금 바라보는 도면 방향
-bool courseMirror = false;    // 길 외우기: 바닥 선이 도면과 좌우 반대인지 (한쪽 갈림길에서 실제로 선이 있는 쪽을 보고 배움, 보드에 기억)
-bool mirrorKnown = false;
 unsigned long legStart = 0;   // 구간 시작 시각
 unsigned long legExpected = 0;// 구간 예상 시간(ms)
 unsigned long junctionSince = 0;
@@ -296,6 +300,7 @@ int turnForwardMs = TURN_FORWARD_MS;   // 교차로 감지 뒤 더 가는 시간
 struct Flicker { bool last; unsigned long t[4]; int i; bool noisy; };
 Flicker flkL = {false, {0, 0, 0, 0}, 0, false}, flkR = {false, {0, 0, 0, 0}, 0, false};
 bool junctionL = false, junctionR = false;
+unsigned long crossHoldUntil = 0;   // 갈림길 지나는 중 곧장 가기 (moveMs 기준)
 unsigned long decideStart = 0;   // 분기/T자 결정 대기 시작 (moveMs+1, 0 = 대기 아님)
 unsigned long candMove = 0;      // 후보가 처음 잡힌 때의 moveMs (결정까지 더 간 만큼 뒤로 물러나려고)
 unsigned long junctionOvershootMs = 0;   // 결정하는 동안 지나쳐 간 시간(바퀴 돌린 시간)
@@ -428,16 +433,11 @@ void driveP(int left, int right) {
 
 // ───────── 좌우 모터 힘 보정값 저장 ─────────
 void setTrim(float t) { motorTrim = t > TRIM_MAX ? TRIM_MAX : t < -TRIM_MAX ? -TRIM_MAX : t; }
-void mirrorLoad() {
+// 예전 '길 외우기'가 보드에 남긴 값 지우기 (회전은 늘 계획대로)
+void mirrorForget() {
 #if defined(ESP32)
   Preferences p;
-  if (p.begin("peekok", true)) { if (p.isKey("mirror")) { courseMirror = p.getBool("mirror", false); mirrorKnown = true; } p.end(); }
-#endif
-}
-void mirrorSave() {
-#if defined(ESP32)
-  Preferences p;
-  if (p.begin("peekok", false)) { p.putBool("mirror", courseMirror); p.end(); }
+  if (p.begin("peekok", false)) { if (p.isKey("mirror")) p.remove("mirror"); p.end(); }
 #endif
 }
 void trimLoad() {
@@ -566,6 +566,15 @@ void lineFollow(int base, bool sideRecover = false) {
       driveP(base + recoverDir * STEER_MAX, base - recoverDir * STEER_MAX);
       return;
     }
+  }
+  // 갈림길을 지나는 중: 앞 두 센서가 같이 검정(갈림길 선 위)이었으면 CROSS_HOLD_MS(바퀴 돌린 시간) 동안,
+  // 그리고 뒤 센서가 선을 보는 동안(갈림길 판단 중)은 앞 센서 한쪽이 검정이어도 꺾지 않고 곧장 —
+  // 옆으로 난 가지 선을 '로봇이 벗어났다'로 착각해 그쪽으로 확 꺾고, 그 바람에 뒤 센서가 엉뚱한 선을 보는 것을 막음
+  if (side == 2) crossHoldUntil = moveMs + CROSS_HOLD_MS;
+  if ((side == -1 || side == 1) && ((long)(crossHoldUntil - moveMs) > 0 || rl || rr || decideStart)) {
+    followSince = now;                       // 지난 뒤 꺾기 세기는 처음부터
+    driveP(base, base);
+    return;
   }
   if (side == 0 && (long)(now - counterUntil) < 0) { driveP(base + counterSide * STEER_MIN, base - counterSide * STEER_MIN); return; }
   if (side == 0 || side == 2) { driveP(base, base); return; }   // 선이 사이에 있음 · 앞에 가로선 → 곧장
@@ -930,21 +939,6 @@ bool faceHeading(char want) { return doTurn(turnFor(heading, want), want, false)
 // 교차로에서: 서버가 경로 모양으로 계산한 동작을 따른다 (대각선 구간도 정확)
 bool turnAtNode(const Node& n) {
   char t = (n.action == 'L' || n.action == 'R' || n.action == 'U' || n.action == 'S') ? n.action : turnFor(heading, n.heading);
-  if (t == 'L' || t == 'R') {
-    if (junctionL != junctionR) {             // 한쪽에만 선 → 실제로 선이 있는 쪽으로 돌고, 도면과 좌우가 같은지 외움
-      char seen = junctionL ? 'L' : 'R';
-      bool m = seen != t;
-      if (!mirrorKnown || m != courseMirror) {
-        courseMirror = m; mirrorKnown = true; mirrorSave();
-        Out.printf("[길 외우기] 바닥 선이 도면과 %s — 기억함\n", m ? "좌우 반대" : "같은 방향");
-      }
-      if (m) Out.printf("[길 외우기] 계획은 %c 인데 선은 %c 쪽 → %c 로 돌아요\n", t, seen, seen);
-      t = seen;
-    } else if (courseMirror) {                // T자(양쪽): 외운 대로
-      t = (t == 'L') ? 'R' : 'L';
-      Out.printf("[길 외우기] T자 — 외운 대로 좌우 바꿔 %c 로 돌아요\n", t);
-    }
-  }
   return doTurn(t, n.heading, true);
 }
 
@@ -1332,7 +1326,6 @@ void serialCommands() {
     verbose = !verbose;
     Out.printf("주행 기록 %s (0.1초마다 센서·바퀴·초음파)\n", verbose ? "켬" : "끔");
   } else if (ch == 'p') {
-    Out.printf("길 외우기: %s\n", mirrorKnown ? (courseMirror ? "바닥이 도면과 좌우 반대" : "도면과 같은 방향") : "아직 모름");
     Out.printf("모드 %s · rev %s · 방향 %c · 모터 보정 %+.3f · 세기 %d (최소 %d, PWM %dHz) · 끊어 가기 %d%% · 회전 전 전진 %dms\n", serverMode.c_str(), planRev.c_str(), heading, motorTrim, speedPwm, (int)MIN_PWM, (int)PWM_FREQ, speedDuty, turnForwardMs);
     for (int i = 0; i < planLen; i++) Out.printf("  %-8s %c %c %.2fm %d\n", plan[i].key, plan[i].action, plan[i].heading, plan[i].nextM, plan[i].toFloor);
   } else if (ch == 'x') {
@@ -1458,6 +1451,7 @@ Param params[] = {
   {"kickPwm", &P_SPIN_KICK_PWM, 0, 255, "유턴 출발 세기 (1초마다 다시)"},
   {"kickMs", &P_SPIN_KICK_MS, 0, 1000, "유턴 출발 세기 시간(ms)"},
   {"brakeMs", &P_SPIN_BRAKE_MS, 0, 300, "유턴 멈출 때 반대로 돌리는 시간(ms)"},
+  {"crossHold", &P_CROSS_HOLD_MS, 0, 5000, "갈림길 위(앞 두 센서 검정) 뒤 곧장 가는 시간(ms) — 갈림길에서 가지 선 쪽으로 꺾이면 늘리기"},
   {"startIgnore", &P_START_IGNORE_MS, 0, 10000, "서버 주행 출발 직후 갈림길 무시(ms) — 출발점 가로선을 갈림길로 보면 늘리기, 첫 꺾이는 곳을 놓치면 줄이기"},
   {"uIgnore", &P_UTURN_IGNORE_MS, 0, 5000, "유턴 처음 선 무시 시간(ms) — 덜 돌고 서면 늘리기, 지나치면 줄이기"},
   {"minPwm", &P_MIN_PWM, 0, 255, "바퀴가 도는 최소 세기"},
@@ -1547,7 +1541,7 @@ void setup() {
 #endif
   trimLoad();
   paramsLoad();
-  mirrorLoad();
+  mirrorForget();
   Out.printf("모터 보정 %+.3f (왼쪽 x%.2f · 오른쪽 x%.2f) · 세기 %d · 끊어 가기 %d%% · PWM %dHz\n", motorTrim, 1 + motorTrim, 1 - motorTrim, speedPwm, speedDuty, (int)PWM_FREQ);
 
 #if defined(ESP32)

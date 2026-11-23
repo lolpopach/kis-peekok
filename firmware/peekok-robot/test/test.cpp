@@ -388,6 +388,18 @@ int main(int argc, char** argv) {
         "12-5 앞 좌 · 12-4 직진 · 꺾이는 곳 우 · 12-3·12-2 직진 · 12-1 좌");
   CHECK(planLen == 8 && !strcmp(plan[7].key, "END"), "마지막 END (끝 가로선에서 도착)");
   CHECK(turnFor(HOME_HEADING, plan[0].heading) == 'S', "켤 때 방향(HOME_HEADING)이면 출발할 때 돌지 않음");
+  printf("== 갈림길 지나는 중에는 가지 선 쪽으로 꺾지 않음 ==\n");
+  followReset(); speedDuty = 100; decideStart = 0; crossHoldUntil = 0; fake_analog = 0;
+  fake_pins[PIN_FRONT_LEFT] = HIGH; fake_pins[PIN_FRONT_RIGHT] = HIGH;     // 앞 두 센서 검정 = 갈림길 위
+  lineFollow(speedPwm); fake_millis += 50; moveMs += 50;
+  fake_pins[PIN_FRONT_RIGHT] = LOW;                                         // 앞 왼쪽만 = 가지 선
+  for (int i = 0; i < 5; i++) { lineFollow(speedPwm); fake_millis += 50; moveMs += 50; }
+  CHECK(lastLeftPwm == lastRightPwm, "갈림길 위를 지난 직후 앞 왼쪽만 검정 → 곧장 (꺾지 않음)");
+  moveMs += CROSS_HOLD_MS + 100; fake_millis += 100;
+  for (int i = 0; i < 5; i++) { lineFollow(speedPwm); fake_millis += 50; moveMs += 50; }
+  CHECK(lastLeftPwm < lastRightPwm, "그 뒤에도 앞 왼쪽만 검정이면 평소처럼 왼쪽으로 꺾음");
+  fake_pins[PIN_FRONT_LEFT] = LOW;
+
   printf("\n%s (%d개 실패)\n", fails ? "실패 있음" : "모두 통과", fails);
   return fails ? 1 : 0;
 }
