@@ -25,6 +25,10 @@ import {
 } from '../../../lib/shared.js';
 import { robotState } from '../../../lib/robot.js';
 
+// 새 목적지를 받을 때마다 받은 시각을 넣어 둔다 → 같은 길이라도 계획 번호(rev)가 새로 바뀜
+// (로봇 몸체는 끝냈거나 실패한 rev 를 다시 출발하지 않으므로, 새 호출은 늘 새 rev 여야 함)
+const targetField = (t) => jsonField(t && typeof t === 'object' ? Object.assign({}, t, { issuedAt: Date.now() }) : t);
+
 const MISSION = ['to_caller', 'loading', 'delivering', 'at_recipient', 'guiding', 'guided'];
 
 function need(robot, modes, what) {
@@ -39,7 +43,7 @@ const actions = {
     const c = id && await db.prepare('SELECT * FROM calls WHERE id = ?').bind(id).first();
     if (!c || c.status !== 'waiting') throw new HttpError(409, '기다리는 호출이 아니에요');
     await db.prepare("UPDATE calls SET status = 'coming', coming_at = ?, updated_at = ? WHERE id = ?").bind(t, t, id).run();
-    await setRobot(db, { mode: 'to_caller', call_id: id, target: jsonField(b.target), progress: null });
+    await setRobot(db, { mode: 'to_caller', call_id: id, target: targetField(b.target), progress: null });
   },
 
   async walkup(db, b, robot, t) {
@@ -56,7 +60,7 @@ const actions = {
   async guide(db, b, robot) {
     need(robot, ['idle', 'returning'], '길 안내');
     if (!b.target || !b.target.plan) throw new HttpError(400, '목적지 경로(target.plan)가 필요해요');
-    await setRobot(db, { mode: 'guiding', call_id: null, target: jsonField(b.target), progress: null });
+    await setRobot(db, { mode: 'guiding', call_id: null, target: targetField(b.target), progress: null });
   },
 
   async arrived(db, b, robot, t) {
@@ -83,7 +87,7 @@ const actions = {
       `UPDATE calls SET status = 'delivering', to_room = ?, to_label = ?, recipient = ?, memo = ?,
          caller = COALESCE(?, caller), departed_at = ?, updated_at = ? WHERE id = ?`,
     ).bind(toRoom, text(b.to_label, 60), text(b.recipient, 30), text(b.memo, 120), text(b.caller, 30), t, t, robot.callId).run();
-    await setRobot(db, { mode: 'delivering', target: jsonField(b.target), progress: null });
+    await setRobot(db, { mode: 'delivering', target: targetField(b.target), progress: null });
   },
 
   async delivered(db, b, robot, t) {
@@ -94,7 +98,7 @@ const actions = {
 
   async target(db, b, robot) {
     if (robot.mode === 'idle') throw new HttpError(409, '대기 중에는 목적지를 정할 수 없어요');
-    await setRobot(db, { target: jsonField(b.target), progress: null });
+    await setRobot(db, { target: targetField(b.target), progress: null });
   },
 
   async progress(db, b, robot, t) {
