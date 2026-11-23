@@ -34,7 +34,7 @@ KIS.Delivery = (function () {
         }
         history.replaceState(null, '', location.pathname + location.search);
       }
-      key = localStorage.getItem(KEY_STORE);
+      key = (localStorage.getItem(KEY_STORE) || '').trim() || null;
       if (key) localStorage.setItem(DEVICE_STORE, '1');
     } catch (e) { key = null; }
   }

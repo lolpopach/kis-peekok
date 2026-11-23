@@ -907,6 +907,20 @@
   keepAwake();
   document.addEventListener('visibilitychange', keepAwake);
   document.addEventListener('pointerdown', keepAwake, { passive: true }); // 일부 브라우저는 터치 후에만 허용
+  // 로봇 기기(휴대폰 가로·태블릿)를 브라우저로 열었으면 첫 터치 때 전체 화면 + 가로 고정
+  // (주소창·알림줄만큼 화면이 줄지 않게. 홈 화면에 추가해 전체 화면으로 실행 중이면 그대로)
+  function robotFullscreen() {
+    const DL = window.KIS.Delivery;
+    if (!DL || !DL.enabled()) return;
+    if (document.fullscreenElement || document.webkitFullscreenElement) return;
+    if (matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches) return;
+    const d = document.documentElement;
+    const req = d.requestFullscreen ? d.requestFullscreen({ navigationUI: 'hide' }) : d.webkitRequestFullscreen ? d.webkitRequestFullscreen() : null;
+    Promise.resolve(req).then(() => {
+      if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {});
+    }).catch(() => { /* 지원하지 않는 브라우저(아이폰 사파리 등) */ });
+  }
+  document.addEventListener('pointerup', robotFullscreen, { passive: true });
   // 길게 누르기 메뉴, 두 손가락 페이지 확대(iOS), 드래그 방지 — 지도 확대는 지도 안에서만
   document.addEventListener('contextmenu', (e) => e.preventDefault());
   ['gesturestart', 'gesturechange'].forEach((ev) => document.addEventListener(ev, (e) => e.preventDefault()));
