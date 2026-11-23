@@ -2,7 +2,7 @@
  *
  * 흐름: 휴대폰 호출 → (로봇이 비어 있으면 자동으로) 호출 받기 → 부른 곳으로 이동
  *      → 도착: "제가 불렀어요" 또는 로봇 제어 프로그램의 도착 보고 → 물건 싣기
- *      → (휴대폰에서 받는 곳을 미리 정했으면) "물건을 다 넣었으면 화면을 눌러 주세요" → 화면을 누르면 출발
+ *      → (휴대폰에서 받는 곳을 미리 정했으면) "물건을 놓으셨으면 탭해 주세요" → 화면을 누르면 출발
  *        (로봇 앞에서 바로 보내는 배달·받는 곳이 없는 호출은 이 화면에서 받는 곳 → 받는 사람·메모 → 출발)
  *      → 받는 곳 도착 → "받았어요" → 제자리로
  *
@@ -134,8 +134,8 @@ KIS.Delivery = (function () {
       app.showApp();
       app.go('delivery', {}, { push: false });
       if (preset()) {
-        if (!first) app.say('도착했어요! 물건을 다 넣었으면 화면을 눌러 주세요.');
-        app.bubble('물건을 다 넣었으면 화면을 눌러 주세요!', false);
+        if (!first) app.say('도착했어요! 물건을 놓으셨으면 화면을 탭해 주세요.');
+        app.bubble('물건을 놓으셨으면 탭해 주세요!', false);
       } else {
         if (!first) app.say('도착했어요! 보낼 물건을 로봇에 넣어 주세요.');
         app.bubble('보낼 물건을 로봇에 넣어 주세요!', false);
@@ -243,7 +243,7 @@ KIS.Delivery = (function () {
         <div class="dl-box">${I('box')}</div>
         <div class="dl-tap-text">
           <p class="dl-kicker">${I('box')}${c.kind === 'call' ? `${esc(label(c.from_room, c.from_label))}에서 ${c.caller ? `${esc(c.caller)}님이 ` : ''}보내는 배달` : '피콕 배달'}</p>
-          <h1>물건을 다 넣었으면<br><b>화면을 눌러 주세요</b></h1>
+          <h1>물건을 놓으셨으면<br><b>탭해 주세요</b></h1>
           <div class="dl-place">${badge(c.to_room)}<b>${esc(to)}</b>${c.recipient ? `<span>${esc(honor(c.recipient))}께</span>` : ''}</div>
           ${c.memo ? `<p class="dl-tap-memo">${I('chat')}${esc(c.memo)}</p>` : ''}
           ${plan ? '' : '<p class="dl-warn">로봇이 갈 수 없는 곳이에요. 받는 곳을 바꿔 주세요.</p>'}
@@ -505,7 +505,7 @@ KIS.Delivery = (function () {
       const ev = elevatorWait();
       if (ev) return `엘리베이터에 태워 주세요! ${ev.toFloor}층에서 내려 주시고, 화면을 눌러 주세요`;
       if (m === 'to_caller' && c) return `${label(c.from_room, c.from_label)}에서 불러서 가고 있어요`;
-      if (m === 'loading') return preset() ? '물건을 다 넣었으면 화면을 눌러 주세요' : '보낼 물건을 넣어 주세요! 화면을 눌러 주세요';
+      if (m === 'loading') return preset() ? '물건을 놓으셨으면 탭해 주세요' : '보낼 물건을 넣어 주세요! 화면을 눌러 주세요';
       if (m === 'delivering' && c) return `${RT.josa(label(c.to_room, c.to_label), '으로/로')} 배달 가는 중이에요`;
       if (m === 'at_recipient') return '배달 왔어요! 화면을 눌러 주세요';
       if (m === 'returning') return '제자리로 돌아가고 있어요';
