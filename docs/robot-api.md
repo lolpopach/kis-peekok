@@ -61,7 +61,7 @@ X-Robot-Key: <로봇 키>
 | --- | --- | --- |
 | `idle` | 대기 | 제자리에서 멈춤 |
 | `to_caller` | 부른 곳으로 가는 중 | `target.plan` 을 따라 주행 → 끝나면 `arrived` |
-| `loading` | 부른 곳에서 물건 싣는 중 | 멈춤 (사람이 태블릿에서 받는 곳을 고름) |
+| `loading` | 부른 곳에서 물건 싣는 중 | 멈춤 (받는 곳은 휴대폰에서 미리 정함 — 사람이 물건을 넣고 로봇 화면을 누르면 출발) |
 | `delivering` | 받는 곳으로 가는 중 | `target.plan` 을 따라 주행 → 끝나면 `arrived` |
 | `at_recipient` | 받는 곳 도착, 꺼내 가길 기다림 | 멈춤 |
 | `returning` | 제자리로 돌아가는 중 | `target.plan` 을 따라 주행 → 끝나면 `arrived` |

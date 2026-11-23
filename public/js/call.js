@@ -1,7 +1,7 @@
 /* 피콕 부르기 (index.html) — 휴대폰 우선, 한국어 / English
- *  부르기: 1) 부를 곳 → 2) 보낼 물건 → 3) 확인 후 부르기
+ *  부르기: 1) 부를 곳 → 2) 받는 곳 → 3) 보낼 물건·받는 사람·메모 → 4) 확인 후 부르기
  *  진행 상황: 접수 → 오는 중 → 물건 싣기 → 배달 중 → 완료 (3초마다 확인) + 피콕 실시간 위치
- *  로봇이 도착하면 받는 곳·받는 사람·메모는 로봇 화면에서 고른다.
+ *  피콕이 도착하면 이 화면에 크게 알리고(진동), 사람은 물건을 넣은 뒤 로봇 화면을 눌러 출발시킨다.
  */
 (function () {
   const CFG = KIS.CONFIG, D = KIS.DATA, RT = KIS.Router, S = KIS.Search, I = KIS.icon, L = KIS.I18N;
@@ -26,7 +26,8 @@
   const reachable = (r) => RT.robotReachable(r);
   const sortRooms = (a, b) => (a.group === 'class' && b.group === 'class' ? a.grade - b.grade || a.klass - b.klass : nameOf(a).localeCompare(nameOf(b), L.lang, { numeric: true }));
 
-  const form = { step: 1, floor: (callFloors[0] || D.floors[0]).id, place: null, q: '', kind: '', note: '', caller: store.get('kis-caller-name') || '' };
+  const form = { step: 1, floor: (callFloors[0] || D.floors[0]).id, place: null, dest: null, q: '', kind: '', note: '', recipient: '', memo: '', caller: store.get('kis-caller-name') || '' };
+  const LAST = 4;
   let active = store.get('kis-call');   // { id, token }
   let last = null, skew = 0, pollT = null, mapView = null, mapFloor = null, liveT = null, robotNow = null, errMsg = '', cancelArm = false;
 
@@ -58,10 +59,10 @@
         <div class="c-face" id="c-face"></div>
         <div class="c-hero-text"><h1>${esc(head[0])}</h1><p>${esc(head[1])}</p></div>
       </div>
-      ${st ? '' : `<ol class="c-stepper">${[t('stepWhere'), t('stepWhat'), t('stepCheck')].map((s, i) => `<li class="${i + 1 < form.step ? 'is-done' : i + 1 === form.step ? 'is-now' : ''}"><span>${i + 1 < form.step ? I('check') : i + 1}</span>${esc(s)}</li>`).join('')}</ol>`}`;
+      ${st ? '' : `<ol class="c-stepper">${[t('stepWhere'), t('stepDest'), t('stepWhat'), t('stepCheck')].map((s, i) => `<li class="${i + 1 < form.step ? 'is-done' : i + 1 === form.step ? 'is-now' : ''}"><span>${i + 1 < form.step ? I('check') : i + 1}</span>${esc(s)}</li>`).join('')}</ol>`}`;
     const face = KIS.createFace($('#c-face'), { mini: true });
     if (st) face.setMood(st === 'delivered' || st === 'loading' ? 'happy' : ['canceled', 'expired'].includes(st) ? 'sad' : 'idle');
-    document.title = t('appTitle');
+    document.title = st === 'loading' ? `🔔 ${t('arrivedTitle')}` : t('appTitle');
   }
   function paintChip() { const c = $('#c-chip'); if (c) c.innerHTML = statusChip(); }
 
@@ -75,44 +76,52 @@
 
   /* ───────── 1) 부르기 ───────── */
   const picked = () => (form.place ? D.roomById(form.place) : null);
+  const destRoom = () => (form.dest ? D.roomById(form.dest) : null);
+  // 1단계는 부를 곳, 2단계는 받는 곳을 같은 장소 고르기 화면으로 고른다
+  const pickField = () => (form.step === 2 ? 'dest' : 'place');
+  const okDest = (r) => !!r && reachable(r) && r.id !== form.place;
+  const stepOk = (n) => (n === 1 ? !!picked() && reachable(picked()) : n === 2 ? okDest(destRoom()) : true);
 
   function renderForm() {
     stopLive();
     renderTop([t('heroHi'), t('heroText')], null);
-    const body = form.step === 1 ? stepWhere() : form.step === 2 ? stepWhat() : stepCheck();
-    const p = picked();
-    const canNext = form.step !== 1 || (p && reachable(p));
+    const body = form.step <= 2 ? stepWhere() : form.step === 3 ? stepWhat() : stepCheck();
+    const canNext = stepOk(form.step);
     main.innerHTML = `${body}
       ${errMsg ? `<p class="c-error" role="alert">${esc(errMsg)}</p>` : ''}
       <div class="c-actions">
         ${form.step > 1 ? `<button class="c-btn c-btn-ghost" type="button" data-act="prev">${I('back')}${esc(t('back'))}</button>` : ''}
-        ${form.step < 3
+        ${form.step < LAST
           ? `<button class="c-btn c-btn-main" type="button" data-act="next" ${canNext ? '' : 'disabled'}>${esc(t('next'))}${I('chevron')}</button>`
           : `<button class="c-btn c-btn-main c-btn-send" type="button" data-act="call">${I('box')}${esc(t('send'))}</button>`}
       </div>`;
     errMsg = '';
-    if (form.step === 1) renderRooms();
+    if (form.step <= 2) renderRooms();
   }
 
-  function placeCard(changeAct, showReach) {
-    const r = picked();
+  function placeCard(changeAct, showReach, room) {
+    const r = room || picked();
     if (!r) return '';
-    const ok = reachable(r);
+    const same = r.id === form.place && r !== picked();
+    const ok = reachable(r) && !same;
     return `<div class="c-place">
       <span class="c-badge cat-${r.cat}"><b>${r.floor}</b><small>${esc(t('floorShort'))}</small></span>
-      <div><b>${esc(nameOf(r))}</b>${showReach ? `<span class="${ok ? 'is-ok' : 'is-no'}">${I(ok ? 'check' : 'close')}${esc(ok ? t('reachable') : t('unreachable'))}</span>` : `<span>${esc(t('floor')(r.floor))}</span>`}</div>
+      <div><b>${esc(nameOf(r))}</b>${showReach ? `<span class="${ok ? 'is-ok' : 'is-no'}">${I(ok ? 'check' : 'close')}${esc(ok ? t('reachable') : same ? t('sameDest') : t('unreachable'))}</span>` : `<span>${esc(t('floor')(r.floor))}</span>`}</div>
       ${changeAct ? `<button type="button" class="c-chip-btn" data-act="${changeAct}">${esc(t('change'))}</button>` : ''}
     </div>`;
   }
 
   function stepWhere() {
-    const recent = (store.get('kis-call-recent') || []).map((id) => D.roomById(id)).filter(Boolean).slice(0, 4);
-    return `<section class="c-card">
+    const isDest = form.step === 2;
+    const recent = (store.get(isDest ? 'kis-dest-recent' : 'kis-call-recent') || []).map((id) => D.roomById(id))
+      .filter((r) => r && (!isDest || r.id !== form.place)).slice(0, 4);
+    const cur = isDest ? destRoom() : picked();
+    return `${isDest ? '' : `<section class="c-card">
       <ol class="c-how">${t('how').map((h, i) => `<li><b>${i + 1}</b>${esc(h)}</li>`).join('')}</ol>
-    </section>
+    </section>`}
     <section class="c-card">
-      <header class="c-head"><h2>${esc(t('whereTitle'))}</h2><p>${esc(t('whereSub'))}</p></header>
-      ${picked() ? placeCard('unpick', true) : `
+      <header class="c-head"><h2>${esc(t(isDest ? 'destTitle' : 'whereTitle'))}</h2><p>${esc(t(isDest ? 'destSub' : 'whereSub'))}</p></header>
+      ${cur ? placeCard('unpick', true, cur) : `
       <label class="c-search">${I('search')}<input id="c-q" type="search" placeholder="${esc(t('searchPh'))}" autocomplete="off" enterkeyhint="search" value="${esc(form.q)}"></label>
       ${recent.length ? `<div class="c-recent"><span>${esc(t('recent'))}</span><div>${recent.map((r) => `<button type="button" data-room="${esc(r.id)}">${I('star')}${esc(nameOf(r))}</button>`).join('')}</div></div>` : ''}
       <div class="c-floors" id="c-floors">${callFloors.map((f) => `<button type="button" data-floor="${f.id}"><b>${f.id}</b>${esc(t('floorShort'))}</button>`).join('')}</div>
@@ -120,7 +129,7 @@
     </section>`;
   }
 
-  const roomBtn = (r, showFloor) => `<button type="button" class="c-room cat-${r.cat}${reachable(r) ? '' : ' is-no'}" data-room="${esc(r.id)}">
+  const roomBtn = (r, showFloor) => `<button type="button" class="c-room cat-${r.cat}${reachable(r) && !(form.step === 2 && r.id === form.place) ? '' : ' is-no'}" data-room="${esc(r.id)}">
     <i></i><span>${esc(nameOf(r))}</span>${showFloor ? `<small>${esc(t('floor')(r.floor))}</small>` : ''}</button>`;
 
   function renderRooms() {
@@ -153,6 +162,14 @@
           <span class="c-kind-ico">${I(icon)}</span><b>${esc(title)}</b><small>${esc(sub)}</small><i class="c-kind-check">${I('check')}</i></button>`;
       }).join('')}</div>
       <input id="c-note" class="c-input" maxlength="70" placeholder="${esc(t('notePh'))}" value="${esc(form.note)}">
+    </section>
+    <section class="c-card">
+      <header class="c-head"><h2>${esc(t('whoTitle'))}</h2><p>${esc(t('whoSub'))}</p></header>
+      <label class="c-field"><span>${esc(t('recipient'))}</span>
+        <input id="c-recipient" class="c-input" maxlength="30" placeholder="${esc(t('recipientPh'))}" value="${esc(form.recipient)}"></label>
+      <div class="c-quick">${t('recipientChips').map((x) => `<button type="button" class="c-chip-btn" data-rcp="${esc(x)}">${esc(x)}</button>`).join('')}</div>
+      <label class="c-field"><span>${esc(t('memo'))}</span>
+        <input id="c-memo" class="c-input" maxlength="120" placeholder="${esc(t('memoPh'))}" value="${esc(form.memo)}"></label>
     </section>`;
   }
 
@@ -162,9 +179,11 @@
       <header class="c-head"><h2>${esc(t('checkTitle'))}</h2><p>${esc(t('checkSub'))}</p></header>
       <dl class="c-sum">
         <div><dt>${esc(t('to'))}</dt><dd>${placeCard('edit1', false)}</dd></div>
-        ${kind || form.note ? `<div><dt>${esc(t('request'))}</dt><dd class="c-req">
-          <div>${kind ? `<span class="c-tag">${esc(kind)}</span>` : ''}${form.note ? `<p>${esc(form.note)}</p>` : ''}</div>
-          <button type="button" class="c-chip-btn" data-act="edit2">${esc(t('change'))}</button></dd></div>` : ''}
+        <div><dt>${esc(t('dest'))}</dt><dd>${placeCard('edit2', false, destRoom())}</dd></div>
+        ${kind || form.note || form.recipient || form.memo ? `<div><dt>${esc(t('request'))}</dt><dd class="c-req">
+          <div>${kind ? `<span class="c-tag">${esc(kind)}</span>` : ''}${form.note ? `<p>${esc(form.note)}</p>` : ''}
+            ${form.recipient ? `<p>${esc(t('recipient'))}: <b>${esc(form.recipient)}</b></p>` : ''}${form.memo ? `<p>${esc(t('memo'))}: ${esc(form.memo)}</p>` : ''}</div>
+          <button type="button" class="c-chip-btn" data-act="edit3">${esc(t('change'))}</button></dd></div>` : ''}
       </dl>
       <label class="c-field"><span>${esc(t('name'))}</span>
         <input id="c-caller" class="c-input" maxlength="30" placeholder="${esc(t('namePh'))}" value="${esc(form.caller)}" autocomplete="name"></label>
@@ -178,24 +197,50 @@
     if (id === 'c-q') { form.q = e.target.value; renderRooms(); }
     if (id === 'c-note') form.note = e.target.value;
     if (id === 'c-caller') form.caller = e.target.value;
+    if (id === 'c-recipient') form.recipient = e.target.value;
+    if (id === 'c-memo') form.memo = e.target.value;
   });
   main.addEventListener('keydown', (e) => {
     if (e.target.id === 'c-q' && e.key === 'Enter') { const first = main.querySelector('#c-rooms [data-room]'); if (first) first.click(); else e.target.blur(); }
   });
 
+  /* 피콕이 도착하면 알림 소리 (부르기 버튼을 누를 때 소리를 켜 둔다 — 브라우저는 사람이 누른 뒤에만 소리를 허락함) */
+  let audio = null;
+  function unlockSound() {
+    try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); if (audio.state === 'suspended') audio.resume(); } catch (e) { audio = null; }
+  }
+  function chime() {
+    if (!audio) return;
+    try {
+      if (audio.state === 'suspended') audio.resume();
+      [[784, 0], [988, 0.18], [1319, 0.36]].forEach(([f, at]) => {
+        const o = audio.createOscillator(), g = audio.createGain(), t0 = audio.currentTime + at;
+        o.frequency.value = f; o.type = 'sine';
+        g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(0.35, t0 + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.45);
+        o.connect(g); g.connect(audio.destination); o.start(t0); o.stop(t0 + 0.5);
+      });
+    } catch (e) { /* 소리 없이 */ }
+  }
+
   async function doCall(btn) {
-    const p = picked();
+    unlockSound();
+    const p = picked(), dr = destRoom();
     if (!p || !reachable(p)) { errMsg = t('needPlace'); go(1); return; }
+    if (!okDest(dr)) { errMsg = t('needDest'); go(2); return; }
     btn.disabled = true;
     btn.innerHTML = `<i class="c-spin"></i>${esc(t('sending'))}`;
     const kindKo = KIND_KO[form.kind] || '';
     const note = [kindKo, form.note.trim()].filter(Boolean).join(' · ').slice(0, 80);
     try {
       store.set('kis-caller-name', form.caller.trim());
-      const r = await api('POST', '/api/calls', { from_room: p.id, from_label: RT.displayName(p), caller: form.caller.trim(), note, client });
+      const r = await api('POST', '/api/calls', {
+        from_room: p.id, from_label: RT.displayName(p), caller: form.caller.trim(), note, client,
+        to_room: dr.id, to_label: RT.displayName(dr), recipient: form.recipient.trim(), memo: form.memo.trim(),
+      });
       active = { id: r.id, token: r.token };
       store.set('kis-call', active);
       store.set('kis-call-recent', [p.id, ...(store.get('kis-call-recent') || []).filter((x) => x !== p.id)].slice(0, 6));
+      store.set('kis-dest-recent', [dr.id, ...(store.get('kis-dest-recent') || []).filter((x) => x !== dr.id)].slice(0, 6));
       last = null;
       window.scrollTo(0, 0);
       poll();
@@ -217,7 +262,10 @@
       skew = (r.now || Date.now()) - Date.now();
       robotNow = r.robot;
       const changed = !last || last.call.status !== r.call.status || last.ahead !== r.ahead;
-      if (last && last.call.status !== r.call.status && navigator.vibrate) navigator.vibrate(r.call.status === 'loading' ? [200, 100, 200] : [120]);
+      if (last && last.call.status !== r.call.status) {
+        if (navigator.vibrate) navigator.vibrate(r.call.status === 'loading' ? [300, 120, 300, 120, 300] : [120]);
+        if (r.call.status === 'loading') chime();
+      }
       last = r;
       const net = $('#c-net'); if (net) net.hidden = true;
       renderStatus(changed);
@@ -245,6 +293,11 @@
     const showMap = robot.mine && robot.target && robot.target.plan && ['coming', 'delivering'].includes(st);
     const row = (icon, label, val) => (val ? `<div><dt>${I(icon)}${esc(label)}</dt><dd>${esc(val)}</dd></div>` : '');
     main.innerHTML = `
+      ${st === 'loading' ? `<section class="c-card c-arrived" role="alert">
+        <span class="c-arrived-ico">${I('box')}</span>
+        <div><b>${esc(t('arrivedTitle'))}</b><p>${esc(t('arrivedText')(to))}</p></div>
+        <ol>${t('arrivedSteps').map((s, i) => `<li><b>${i + 1}</b>${esc(s)}</li>`).join('')}</ol>
+      </section>` : ''}
       ${['canceled', 'expired'].includes(st) ? '' : `<section class="c-card c-track" id="c-state" data-st="${st}">
         <div class="c-progress"><i style="width:${[10, 32, 55, 78, 100][idx]}%"></i></div>
         <ol class="c-timeline">${t('steps').map((s, i) => {
@@ -333,10 +386,11 @@
     if (d.floor) { form.floor = Number(d.floor); form.q = ''; const qi = $('#c-q'); if (qi) qi.value = ''; renderRooms(); return; }
     if (d.room) {
       const r = D.roomById(d.room);
-      form.place = d.room; form.q = '';
-      if (reachable(r)) go(2); else renderForm();
+      form[pickField()] = d.room; form.q = '';
+      if (stepOk(form.step)) go(form.step + 1); else renderForm();
       return;
     }
+    if (d.rcp) { form.recipient = d.rcp; const ri = $('#c-recipient'); if (ri) ri.value = d.rcp; return; }
     if (d.kind) {
       form.kind = form.kind === d.kind ? '' : d.kind;
       document.querySelectorAll('.c-kind').forEach((k) => { const on = k.dataset.kind === form.kind; k.classList.toggle('is-on', on); k.setAttribute('aria-pressed', on); });
@@ -349,11 +403,12 @@
         $('#c-foot').textContent = t('footer');
         if (active && last) renderStatus(true); else renderForm();
         break;
-      case 'unpick': form.place = null; renderForm(); break;
+      case 'unpick': form[pickField()] = null; renderForm(); break;
       case 'edit1': form.place = null; go(1); break;
-      case 'edit2': go(2); break;
+      case 'edit2': form.dest = null; go(2); break;
+      case 'edit3': go(3); break;
       case 'prev': go(form.step - 1); break;
-      case 'next': if (form.step === 1 && !(picked() && reachable(picked()))) { errMsg = t('needPlace'); renderForm(); } else go(form.step + 1); break;
+      case 'next': if (!stepOk(form.step)) { errMsg = t(form.step === 1 ? 'needPlace' : 'needDest'); renderForm(); } else go(form.step + 1); break;
       case 'call': doCall(b); break;
       case 'cancel':
         if (!cancelArm) { cancelArm = true; renderStatus(true); setTimeout(() => { if (cancelArm) { cancelArm = false; if (last) renderStatus(true); } }, 4000); break; }
@@ -366,7 +421,7 @@
         break;
       case 'again':
         active = null; last = null; store.set('kis-call', null);
-        Object.assign(form, { step: 1, place: null, q: '', kind: '', note: '' });
+        Object.assign(form, { step: 1, place: null, dest: null, q: '', kind: '', note: '', recipient: '', memo: '' });
         refreshStatus(); renderForm(); window.scrollTo(0, 0);
         break;
       default:
@@ -374,6 +429,7 @@
   });
 
   /* ── 시작 ── */
+  ['pointerdown', 'keydown'].forEach((ev) => document.addEventListener(ev, unlockSound, { passive: true }));
   L.set(L.lang);
   $('#c-foot').textContent = t('footer');
   refreshStatus().then(() => { if (!active) paintChip(); });

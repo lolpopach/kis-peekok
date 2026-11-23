@@ -1,8 +1,10 @@
 /* 로봇 화면의 배달 기능 (robot.html)
  *
  * 흐름: 휴대폰 호출 → (로봇이 비어 있으면 자동으로) 호출 받기 → 부른 곳으로 이동
- *      → 도착: "제가 불렀어요" 또는 로봇 제어 프로그램의 도착 보고 → 물건 싣기 → 받는 곳 고르기
- *      → 받는 사람·메모 → 출발 → 받는 곳 도착 → "받았어요" → 제자리로
+ *      → 도착: "제가 불렀어요" 또는 로봇 제어 프로그램의 도착 보고 → 물건 싣기
+ *      → (휴대폰에서 받는 곳을 미리 정했으면) "물건을 다 넣었으면 화면을 눌러 주세요" → 화면을 누르면 출발
+ *        (로봇 앞에서 바로 보내는 배달·받는 곳이 없는 호출은 이 화면에서 받는 곳 → 받는 사람·메모 → 출발)
+ *      → 받는 곳 도착 → "받았어요" → 제자리로
  *
  * 서버: /api/robot (X-Robot-Key). 이 기기의 키는 설정 링크 robot.html#key=... 로 한 번 저장한다.
  * 로봇 제어 프로그램(라인 트레이스)은 같은 API 로 목적지 계획(target.plan)을 받아 가고,
@@ -16,7 +18,7 @@ KIS.Delivery = (function () {
   const $ = (s, r = document) => r.querySelector(s);
   let app = null, key = null, srv = null, skew = 0, pollT = null, busy = false, online = null;
   let last = { mode: undefined, callId: undefined };
-  let liveMap = null, livePlan = null, liveT = null;
+  let liveMap = null, livePlan = null, liveT = null, tapReadyAt = 0;
   const draft = { callId: null, step: 'load', dest: null, recipient: '', memo: '', sender: '' };
 
   /* ── 설정: robot.html#key=... 로 열면 이 기기를 로봇으로 등록 ── */
@@ -121,7 +123,7 @@ KIS.Delivery = (function () {
   function modeChanged(prev, m) {
     const c = srv.call;
     const first = prev === undefined;
-    if (c && draft.callId !== c.id) Object.assign(draft, { callId: c.id, step: 'load', dest: null, recipient: '', memo: '', sender: c.caller || '' });
+    if (c && draft.callId !== c.id) Object.assign(draft, { callId: c.id, step: 'load', dest: null, recipient: c.recipient || '', memo: c.memo || '', sender: c.caller || '' });
     if (m === 'to_caller' && !first) {
       app.sleep();
       app.faces.big.react('happy', 1500);
@@ -131,8 +133,13 @@ KIS.Delivery = (function () {
     } else if (m === 'loading') {
       app.showApp();
       app.go('delivery', {}, { push: false });
-      if (!first) app.say('도착했어요! 보낼 물건을 로봇에 넣어 주세요.');
-      app.bubble('보낼 물건을 로봇에 넣어 주세요!', false);
+      if (preset()) {
+        if (!first) app.say('도착했어요! 물건을 다 넣었으면 화면을 눌러 주세요.');
+        app.bubble('물건을 다 넣었으면 화면을 눌러 주세요!', false);
+      } else {
+        if (!first) app.say('도착했어요! 보낼 물건을 로봇에 넣어 주세요.');
+        app.bubble('보낼 물건을 로봇에 넣어 주세요!', false);
+      }
     } else if (m === 'delivering' && !first) {
       app.sleep();
       const where = label(c.to_room, c.to_label);
@@ -177,6 +184,8 @@ KIS.Delivery = (function () {
   /* ── 화면 ── */
   const mode = () => (srv ? srv.robot.mode : 'idle');
   const call = () => (srv ? srv.call : null);
+  // 부른 사람이 휴대폰에서 받는 곳을 미리 정한 배달 (로봇 화면에서 받는 곳을 다시 고르지 않았을 때)
+  const preset = () => { const c = call(); return !!(c && c.to_room && D.roomById(c.to_room) && !draft.dest && draft.step === 'load'); };
   const badge = (roomId) => {
     const r = D.roomById(roomId);
     return r ? `<span class="dest-badge cat-${r.cat}"><b>${r.floor}</b>층</span>` : '';
@@ -223,9 +232,35 @@ KIS.Delivery = (function () {
     </section>`;
   }
 
+  // 받는 곳이 정해진 배달: 화면 전체가 '출발' 버튼 (물건을 다 넣고 아무 곳이나 누르면 출발)
+  function tapView() {
+    const c = call(), esc = app.esc;
+    const to = label(c.to_room, c.to_label);
+    const plan = RT.robotPlan(currentPos(), D.roomById(c.to_room));
+    tapReadyAt = Date.now() + 900; // 화면을 깨우려고 두 번 누른 손길로 바로 출발하지 않게
+    return `<section class="view view-dl dl-tap" data-action="dl-go" role="button" aria-label="화면을 눌러 배달 출발">
+      <div class="card dl-tap-card">
+        <div class="dl-box">${I('box')}</div>
+        <div class="dl-tap-text">
+          <p class="dl-kicker">${I('box')}${c.kind === 'call' ? `${esc(label(c.from_room, c.from_label))}에서 ${c.caller ? `${esc(c.caller)}님이 ` : ''}보내는 배달` : '피콕 배달'}</p>
+          <h1>물건을 다 넣었으면<br><b>화면을 눌러 주세요</b></h1>
+          <div class="dl-place">${badge(c.to_room)}<b>${esc(to)}</b>${c.recipient ? `<span>${esc(honor(c.recipient))}께</span>` : ''}</div>
+          ${c.memo ? `<p class="dl-tap-memo">${I('chat')}${esc(c.memo)}</p>` : ''}
+          ${plan ? '' : '<p class="dl-warn">로봇이 갈 수 없는 곳이에요. 받는 곳을 바꿔 주세요.</p>'}
+          <p class="dl-tap-hint">${I('hand')}화면 아무 곳이나 누르면 출발해요</p>
+        </div>
+      </div>
+      <div class="dl-tap-foot">
+        <button class="btn" data-action="dl-pick">${I('map')}받는 곳 바꾸기</button>
+        <button class="dl-link" data-action="dl-cancel">배달 취소</button>
+      </div>
+    </section>`;
+  }
+
   function deliveryView() {
     const c = call(), esc = app.esc;
     if (mode() !== 'loading' || !c) return missionView();
+    if (preset()) return tapView();
     if (draft.step === 'load' || !draft.dest) {
       return `<section class="view view-dl dl-load">
         ${steps(0)}
@@ -398,12 +433,20 @@ KIS.Delivery = (function () {
         break;
       case 'dl-pick-cancel':
         app.state.pick = null;
+        if (!draft.dest) draft.step = 'load'; // 휴대폰에서 정한 받는 곳 그대로
         app.go('delivery', {}, { push: false });
         break;
       case 'dl-recipient': typeField('recipient', '받는 사람 (예: 김민지 선생님)', ['선생님', '님'], 30); break;
       case 'dl-memo': typeField('memo', '메모 (예: 수업 자료예요)', ['급해요', '조심히 다뤄 주세요', '서류예요', '감사합니다'], 120); break;
       case 'dl-sender': typeField('sender', '보내는 사람 이름', [], 30); break;
       case 'dl-chip': draft.recipient = id; app.render(); break;
+      case 'dl-go': {
+        if (!c || !preset() || Date.now() < tapReadyAt) break;
+        const t = targetFor(c.to_room, c.to_label);
+        if (!t || !t.plan) { app.bubble('로봇이 갈 수 없는 곳이에요. 받는 곳을 바꿔 주세요.', false); break; }
+        act('depart', { to_room: c.to_room, to_label: t.label, recipient: c.recipient || '', memo: c.memo || '', caller: c.caller || '', target: t });
+        break;
+      }
       case 'dl-depart': {
         if (!c || !draft.dest) break;
         const t = targetFor(draft.dest);
@@ -462,7 +505,7 @@ KIS.Delivery = (function () {
       const ev = elevatorWait();
       if (ev) return `엘리베이터에 태워 주세요! ${ev.toFloor}층에서 내려 주시고, 화면을 눌러 주세요`;
       if (m === 'to_caller' && c) return `${label(c.from_room, c.from_label)}에서 불러서 가고 있어요`;
-      if (m === 'loading') return '보낼 물건을 넣어 주세요! 화면을 눌러 주세요';
+      if (m === 'loading') return preset() ? '물건을 다 넣었으면 화면을 눌러 주세요' : '보낼 물건을 넣어 주세요! 화면을 눌러 주세요';
       if (m === 'delivering' && c) return `${RT.josa(label(c.to_room, c.to_label), '으로/로')} 배달 가는 중이에요`;
       if (m === 'at_recipient') return '배달 왔어요! 화면을 눌러 주세요';
       if (m === 'returning') return '제자리로 돌아가고 있어요';

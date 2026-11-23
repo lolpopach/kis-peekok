@@ -62,7 +62,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 @keyframes float { 50% { transform: translateY(-4px); } }
 .c-hero-text h1 { font-size: 24px; font-weight: 800; line-height: 1.25; letter-spacing: -.02em; }
 .c-hero-text p { margin-top: 4px; font-size: 15px; opacity: .85; }
-.c-stepper { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 20px; }
+.c-stepper { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 20px; }
 .c-stepper li { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; border-radius: 999px; background: rgba(255, 255, 255, .08); font-size: 13px; font-weight: 700; color: rgba(255, 255, 255, .6); }
 .c-stepper li span { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 800; background: rgba(255, 255, 255, .14); }
 .c-stepper li span .ico { width: 12px; height: 12px; }
@@ -234,3 +234,19 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .c-live-note { display: flex; align-items: center; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 13px; color: var(--ink-3); font-weight: 600; }
 .c-live-note i { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); animation: blink 1.6s ease-in-out infinite; flex: none; }
 .c-brand > span { opacity: 1; }
+
+/* 받는 사람 빠른 고르기 */
+.c-quick { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.c-quick .c-chip-btn { min-height: 40px; }
+
+/* 피콕 도착 알림 (물건을 넣고 로봇 화면을 누르세요) */
+.c-arrived { display: grid; grid-template-columns: auto 1fr; gap: 12px 14px; align-items: center; background: linear-gradient(135deg, #0B7F87, #1A4FC0); color: #fff; animation: rise .35s var(--ease), c-ping 1.6s ease-in-out 3; }
+.c-arrived-ico { width: 56px; height: 56px; border-radius: 18px; display: grid; place-items: center; background: rgba(255, 255, 255, .18); }
+.c-arrived-ico .ico { width: 30px; height: 30px; }
+.c-arrived b { display: block; font-size: 21px; font-weight: 800; line-height: 1.25; }
+.c-arrived p { margin-top: 4px; font-size: 15px; font-weight: 600; color: rgba(255, 255, 255, .88); }
+.c-arrived ol { grid-column: 1 / -1; list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.c-arrived li { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; background: rgba(255, 255, 255, .14); font-size: 16px; font-weight: 700; }
+.c-arrived li b { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: #fff; color: var(--peacock); font-size: 14px; flex: none; }
+@keyframes c-ping { 50% { transform: scale(1.02); box-shadow: 0 0 0 8px rgba(26, 79, 192, .18); } }
+@media (prefers-reduced-motion: reduce) { .c-arrived { animation: none; } }
