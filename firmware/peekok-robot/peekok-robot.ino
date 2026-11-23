@@ -1270,6 +1270,9 @@ void serialCommands() {
   } else if (ch == 't') {
     if (state == ST_FOLLOW || state == ST_ELEVATOR) { Out.println("서버 주행 중이라 시험할 수 없어요 (x 로 멈춘 뒤)"); return; }
     traceStart();
+  } else if (ch == 'H') {         // 제자리(출발점)에 다시 놓았음: 방향을 HOME_HEADING 으로
+    heading = HOME_HEADING;
+    Out.printf("[제자리] 출발점에 놓았어요 — 방향 %c\n", heading);
   } else if (ch == '@') {         // 지도 프로그램이 붙으면 보냄: 위치 보고 켜기
     telemetry = true;
     Out.println("[지도] 위치 보고 켬 (@m)");
