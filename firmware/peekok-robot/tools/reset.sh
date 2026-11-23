@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 피콕을 제자리(12-5반 앞 출발점)에 다시 놓았을 때: reset
 #   1) 로봇 멈춤(x) + "출발점에서 세로 선 쪽(동쪽)을 보고 있음"(H)  — WiFi(peekok-robot.local:2323, ROBOT_HOST 로 바꿀 수 있음)
-#   2) 실제 웹 서버: 대기(idle)로 + 로봇 위치 = 12-5반 앞 (public/js/config.js robotLocation 과 같은 값)
+#   2) 실제 웹 서버: 대기(idle)로 + 진행·대기 중인 호출 모두 취소 + 로봇 위치 = 12-5반 앞 (public/js/config.js robotLocation 과 같은 값)
 # 로봇 키는 config.h 에서 읽고 화면에 출력하지 않음
 set -uo pipefail
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -23,8 +23,8 @@ R1=$?
 
 # 2) 웹 서버
 post() { curl -s -m 10 -X POST -H "X-Robot-Key: $KEY" -H "content-type: application/json" -d "$2" "$BASE/api/robot/$1"; }
-if post reset '{}' >/dev/null && post position "$HOME_POS" | grep -q '"position"'; then
-  echo "[서버] 대기 상태 · 로봇 위치 = 12-5반 앞 ($BASE)"
+if post reset '{"all":true}' >/dev/null && post position "$HOME_POS" | grep -q '"position"'; then
+  echo "[서버] 대기 상태 · 호출 모두 취소 · 로봇 위치 = 12-5반 앞 ($BASE) — 로봇 화면은 몇 초 안에 처음 화면으로"
 else
   echo "[서버] 설정 실패 — 인터넷 연결이나 로봇 키를 확인"; exit 1
 fi

@@ -392,7 +392,7 @@ KIS.Delivery = (function () {
     const v = app.state.current.view;
     const want = mode() === 'loading' ? 'delivery' : mode() === 'at_recipient' ? 'receive' : ['to_caller', 'delivering', 'returning'].includes(mode()) ? 'mission' : null;
     if (want && v !== want && v !== 'mission') app.go(want, {}, { push: false });
-    else if (!want && v !== 'mission') app.goHome();
+    else if (!want) app.goHome();   // 대기(초기화 포함)면 배달 화면에서도 처음(얼굴)으로
     else if (v === 'mission' && liveMap && srv.robot.target && srv.robot.target.plan !== livePlan && JSON.stringify(srv.robot.target.plan) !== JSON.stringify(livePlan)) app.render();
   }
 

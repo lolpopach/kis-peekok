@@ -130,6 +130,10 @@ const actions = {
       await db.prepare("UPDATE calls SET status = 'canceled', ended_at = ?, updated_at = ? WHERE id = ? AND status NOT IN ('delivered','canceled','expired')")
         .bind(t, t, robot.callId).run();
     }
+    if (b && b.all) {   // 터미널 reset: 기다리는 호출까지 모두 취소 (초기화 뒤 로봇 화면이 바로 다음 호출을 받아 출발하지 않게)
+      await db.prepare("UPDATE calls SET status = 'canceled', ended_at = ?, updated_at = ? WHERE status NOT IN ('delivered','canceled','expired')")
+        .bind(t, t).run();
+    }
     await setRobot(db, { mode: 'idle', call_id: null, target: null, progress: null });
   },
 };
