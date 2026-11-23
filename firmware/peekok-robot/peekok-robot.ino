@@ -261,6 +261,8 @@ enum State { ST_IDLE, ST_FOLLOW, ST_ELEVATOR, ST_ERROR, ST_TEST, ST_TRACE };
 State state = ST_IDLE;
 int legFrom = 0;              // 지금 달리는 구간: plan[legFrom] → plan[legFrom + 1]
 char heading = HOME_HEADING;  // 지금 바라보는 도면 방향
+bool courseMirror = false;    // 길 외우기: 바닥 선이 도면과 좌우 반대인지 (한쪽 갈림길에서 실제로 선이 있는 쪽을 보고 배움, 보드에 기억)
+bool mirrorKnown = false;
 unsigned long legStart = 0;   // 구간 시작 시각
 unsigned long legExpected = 0;// 구간 예상 시간(ms)
 unsigned long junctionSince = 0;
@@ -426,6 +428,18 @@ void driveP(int left, int right) {
 
 // ───────── 좌우 모터 힘 보정값 저장 ─────────
 void setTrim(float t) { motorTrim = t > TRIM_MAX ? TRIM_MAX : t < -TRIM_MAX ? -TRIM_MAX : t; }
+void mirrorLoad() {
+#if defined(ESP32)
+  Preferences p;
+  if (p.begin("peekok", true)) { if (p.isKey("mirror")) { courseMirror = p.getBool("mirror", false); mirrorKnown = true; } p.end(); }
+#endif
+}
+void mirrorSave() {
+#if defined(ESP32)
+  Preferences p;
+  if (p.begin("peekok", false)) { p.putBool("mirror", courseMirror); p.end(); }
+#endif
+}
 void trimLoad() {
 #if defined(ESP32)
   Preferences p;
@@ -916,6 +930,21 @@ bool faceHeading(char want) { return doTurn(turnFor(heading, want), want, false)
 // 교차로에서: 서버가 경로 모양으로 계산한 동작을 따른다 (대각선 구간도 정확)
 bool turnAtNode(const Node& n) {
   char t = (n.action == 'L' || n.action == 'R' || n.action == 'U' || n.action == 'S') ? n.action : turnFor(heading, n.heading);
+  if (t == 'L' || t == 'R') {
+    if (junctionL != junctionR) {             // 한쪽에만 선 → 실제로 선이 있는 쪽으로 돌고, 도면과 좌우가 같은지 외움
+      char seen = junctionL ? 'L' : 'R';
+      bool m = seen != t;
+      if (!mirrorKnown || m != courseMirror) {
+        courseMirror = m; mirrorKnown = true; mirrorSave();
+        Out.printf("[길 외우기] 바닥 선이 도면과 %s — 기억함\n", m ? "좌우 반대" : "같은 방향");
+      }
+      if (m) Out.printf("[길 외우기] 계획은 %c 인데 선은 %c 쪽 → %c 로 돌아요\n", t, seen, seen);
+      t = seen;
+    } else if (courseMirror) {                // T자(양쪽): 외운 대로
+      t = (t == 'L') ? 'R' : 'L';
+      Out.printf("[길 외우기] T자 — 외운 대로 좌우 바꿔 %c 로 돌아요\n", t);
+    }
+  }
   return doTurn(t, n.heading, true);
 }
 
@@ -934,7 +963,7 @@ void beginPlan() {
   if (planLen < 2) return;
   Out.printf("[출발] 모드 %s\n", serverMode.c_str());
   state = ST_FOLLOW;
-  if (!faceHeading(plan[0].heading)) { state = ST_ERROR; return; }
+  if (!faceHeading(plan[0].heading)) { state = ST_ERROR; doneRev = planRev; return; }
   // 출발점 끝 가로선(T) 위에서 출발: 뒤 센서가 그 가로선을 지나가는 동안은 갈림길로 세지 않음 (바퀴 돌린 시간)
   junctionIgnoreMove = moveMs + START_IGNORE_MS;
   junctionArmed = false; sideClearSince = 0; decideStart = 0; junctionSince = 0;
@@ -964,7 +993,7 @@ void atNode(int j) {
     Out.printf("[엘리베이터] %d층으로 태워 주세요. 내린 뒤 FLASH 버튼\n", n.toFloor);
     return;
   }
-  if (!turnAtNode(n)) { state = ST_ERROR; return; }
+  if (!turnAtNode(n)) { state = ST_ERROR; doneRev = planRev; Out.println("[오류] 회전하다 선을 못 찾아 멈춤 — 같은 계획으로 다시 출발하지 않음"); return; }
   startLeg(j);
 }
 
@@ -978,12 +1007,12 @@ void followStep() {
     else atNode(legFrom + 1);
     return;
   }
-  if (liftedNow()) { stopMotors(); state = ST_ERROR; Out.println("[오류] 센서가 모두 검정 — 로봇이 들렸어요?"); return; }
+  if (liftedNow()) { stopMotors(); state = ST_ERROR; doneRev = planRev; Out.println("[오류] 센서가 모두 검정 — 로봇이 들렸어요?"); return; }
   lineFollow(speedPwm);
   logDrive("주행");
   if (telemetry && millis() - lastTele >= 100) { lastTele = millis(); Out.printf("@m %lu\n", moveMs); }
   if (now - legStart > (unsigned long)FOLLOW_GIVEUP_MS) {
-    stopMotors(); state = ST_ERROR; Out.println("[오류] 다음 갈림길이 너무 오래 안 나와요 (선을 벗어났을 수 있음)");
+    stopMotors(); state = ST_ERROR; doneRev = planRev; Out.println("[오류] 다음 갈림길이 너무 오래 안 나와요 (선을 벗어났을 수 있음)");
   }
   return;
 #endif
@@ -993,7 +1022,7 @@ void followStep() {
   // 교차로: 평소엔 선을 안 보는 좌우 센서가 선을 봄 (다음 노드까지 예상 시간의 JUNCTION_GATE 가 지난 뒤부터)
   bool gateOpen = !finalLeg && now - legStart > (unsigned long)(legExpected * JUNCTION_GATE);
   if (junctionSeen(gateOpen)) { atNode(legFrom + 1); return; }
-  if (liftedNow()) { stopMotors(); state = ST_ERROR; Out.println("[오류] 센서가 모두 검정 — 로봇이 들렸어요?"); return; }
+  if (liftedNow()) { stopMotors(); state = ST_ERROR; doneRev = planRev; Out.println("[오류] 센서가 모두 검정 — 로봇이 들렸어요?"); return; }
 
   lineFollow(speedPwm);
   logDrive("주행");
@@ -1300,6 +1329,7 @@ void serialCommands() {
     verbose = !verbose;
     Out.printf("주행 기록 %s (0.1초마다 센서·바퀴·초음파)\n", verbose ? "켬" : "끔");
   } else if (ch == 'p') {
+    Out.printf("길 외우기: %s\n", mirrorKnown ? (courseMirror ? "바닥이 도면과 좌우 반대" : "도면과 같은 방향") : "아직 모름");
     Out.printf("모드 %s · rev %s · 방향 %c · 모터 보정 %+.3f · 세기 %d (최소 %d, PWM %dHz) · 끊어 가기 %d%% · 회전 전 전진 %dms\n", serverMode.c_str(), planRev.c_str(), heading, motorTrim, speedPwm, (int)MIN_PWM, (int)PWM_FREQ, speedDuty, turnForwardMs);
     for (int i = 0; i < planLen; i++) Out.printf("  %-8s %c %c %.2fm %d\n", plan[i].key, plan[i].action, plan[i].heading, plan[i].nextM, plan[i].toFloor);
   } else if (ch == 'x') {
@@ -1514,6 +1544,7 @@ void setup() {
 #endif
   trimLoad();
   paramsLoad();
+  mirrorLoad();
   Out.printf("모터 보정 %+.3f (왼쪽 x%.2f · 오른쪽 x%.2f) · 세기 %d · 끊어 가기 %d%% · PWM %dHz\n", motorTrim, 1 + motorTrim, 1 - motorTrim, speedPwm, speedDuty, (int)PWM_FREQ);
 
 #if defined(ESP32)
