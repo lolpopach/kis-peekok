@@ -140,7 +140,7 @@
 #define TEST_GIVEUP_MS   30000  // 이 시간 동안 표시를 못 만나면 시험을 멈춤 (선을 벗어나 계속 달리지 않게)
 
 // 로봇이 켜질 때(제자리에서) 바라보는 도면 방향: 'N' 위 · 'E' 오른쪽 · 'S' 아래 · 'W' 왼쪽
-#define HOME_HEADING     'N'
+#define HOME_HEADING     'E'
 
 // ── 서버 확인 주기 ──
 #define POLL_IDLE_MS     1500

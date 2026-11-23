@@ -377,8 +377,34 @@ KIS.DATA = (function () {
     });
   });
 
+  /* ── 로봇 시범 코스 (바닥에 붙인 검정 선과 같은 모양) ──
+   * 로봇 주행 계획은 이 선 위에서만 계산합니다 (js/router.js robotPlan). 여기 없는 방은 로봇이 갈 수 없어요.
+   *   nodes : 'H*' 끝(가로선 T 가 붙은 곳 = 반 앞 · 출발점) / 'J*' 갈림길. 좌표는 4층 도면 좌표 그대로.
+   *   rooms : 방 이름 → 그 방 앞 끝 노드
+   * 실제 바닥: 도면 1단위 = tapeCmPerUnit cm 로 줄여서 붙임 (반으로 가는 가지 선은 tapeStubCm) — docs/prototype-course.md
+   * 4층 12학년: 세로 복도(x 83.7)를 따라 12-5 · 12-4, 위 가로 복도(y 496.6)를 따라 12-3 · 12-2 · 12-1
+   */
+  const robotCourse = {
+    floor: 4,
+    home: 'H5',
+    tapeCmPerUnit: 2,
+    tapeStubCm: 40,
+    tapeEndCm: 20,           // 꺾이는 곳·끝 갈림길 너머로 선을 더 붙이는 길이 (모든 갈림길이 T·ㅓ 모양이 되게)
+    nodes: {
+      H5: [70, 564.5], J5: [83.7, 564.5],      // 12-5 앞 (출발·제자리)
+      H4: [70, 522.8], J4: [83.7, 522.8],      // 12-4 앞
+      JC: [83.7, 496.6],                        // 세로 복도 → 가로 복도 꺾이는 곳
+      J3: [104, 496.6], H3: [104, 482],         // 12-3
+      J2: [129.5, 496.6], H2: [129.5, 482],     // 12-2
+      J1: [160, 496.6], H1: [160, 482],         // 12-1
+    },
+    edges: 'H5-J5 J5-J4 J4-H4 J4-JC JC-J3 J3-H3 J3-J2 J2-H2 J2-J1 J1-H1',
+    rooms: { '12-5': 'H5', '12-4': 'H4', '12-3': 'H3', '12-2': 'H2', '12-1': 'H1' },
+  };
+
   return {
     floors,
+    robotCourse,
     floorById: (id) => floors.find((f) => f.id === Number(id)),
     rooms: () => floors.flatMap((f) => f.rooms),
     roomById: (id) => floors.flatMap((f) => f.rooms).find((r) => r.id === id),

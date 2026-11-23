@@ -449,11 +449,101 @@ KIS.Router = (function () {
       total_m: Math.round(total * 10) / 10, nodes,
     };
   }
+  /* ── 시범 코스 (data.js robotCourse): 바닥의 검정 선 위에서만 주행 계획 ──
+   * 노드 = 선의 갈림길(J*)과 가로선이 붙은 끝(H*). 로봇은 갈림길을 만날 때마다 action 을 하고,
+   * 마지막 끝(END)은 가로선(T)을 보면 멈춘다. 끝에서 돌아 나올 때는 START 의 heading 으로 제자리 유턴.
+   */
+  const RC = D.robotCourse || null;
+  const course = (() => {
+    if (!RC) return null;
+    const pts = {}, nbr = {};
+    Object.entries(RC.nodes).forEach(([id, v]) => { pts[id] = [v[0], v[1]]; nbr[id] = []; });
+    const edges = RC.edges.trim().split(/\s+/).map((p) => p.split('-'));
+    edges.forEach(([a, b]) => { nbr[a].push(b); nbr[b].push(a); });
+    return { pts, nbr, edges };
+  })();
+  const courseRoomNode = (room) => (course && room && room.floor === RC.floor ? RC.rooms[room.name] || null : null);
+  // 점에서 가장 가까운 선 위 지점: { a, b, t(0~1), p, d }
+  function courseNearest(pt) {
+    let best = null;
+    course.edges.forEach(([a, b]) => {
+      const A = course.pts[a], B = course.pts[b];
+      const vx = B[0] - A[0], vy = B[1] - A[1], L2 = vx * vx + vy * vy || 1;
+      const t = Math.max(0, Math.min(1, ((pt.x - A[0]) * vx + (pt.y - A[1]) * vy) / L2));
+      const p = [A[0] + vx * t, A[1] + vy * t];
+      const d = dist(p, [pt.x, pt.y]);
+      if (!best || d < best.d) best = { a, b, t, p, d };
+    });
+    return best;
+  }
+  function coursePath(fromNode, goal) {   // 다익스트라 (갈림길에서 되돌아가기 없음)
+    const cost = { [fromNode]: 0 }, prev = {}, todo = new Set([fromNode]);
+    while (todo.size) {
+      let u = null;
+      todo.forEach((k) => { if (u === null || cost[k] < cost[u]) u = k; });
+      todo.delete(u);
+      if (u === goal) break;
+      course.nbr[u].forEach((v) => {
+        const c = cost[u] + dist(course.pts[u], course.pts[v]);
+        if (cost[v] === undefined || c < cost[v]) { cost[v] = c; prev[v] = u; todo.add(v); }
+      });
+    }
+    if (cost[goal] === undefined) return null;
+    const path = [goal];
+    while (path[0] !== fromNode) path.unshift(prev[path[0]]);
+    return { path, cost: cost[goal] };
+  }
+  function coursePlan(from, goal, to) {
+    if (!course || !goal) return null;
+    // 위치를 모르거나 선에서 먼 곳(예: 예전 기록의 다른 층 위치)이면 제자리(home 끝)에서 출발한다고 봄
+    let near = from && Number(from.floor) === RC.floor ? courseNearest(from) : null;
+    if (!near || near.d > 30) {
+      const h = course.pts[RC.home];
+      near = courseNearest({ floor: RC.floor, x: h[0], y: h[1] });
+    }
+    // 출발: 끝·갈림길 위면 그 노드에서, 선 중간이면 양쪽 중 가까운 길로 (필요하면 제자리 유턴)
+    const onNode = near.t < 0.02 ? near.a : near.t > 0.98 ? near.b : null;
+    let best = null;
+    const tryFrom = (node, extra) => {
+      const r = coursePath(node, goal);
+      if (r && (!best || r.cost + extra < best.total)) best = { path: r.path, total: r.cost + extra };
+    };
+    if (onNode) tryFrom(onNode, 0);
+    else { tryFrom(near.a, dist(near.p, course.pts[near.a])); tryFrom(near.b, dist(near.p, course.pts[near.b])); }
+    if (!best) return null;
+    let ids = best.path;
+    let startPt = near.p;
+    if (onNode) { startPt = course.pts[onNode]; ids = ids.slice(1); }   // START 가 곧 그 노드
+    if (!ids.length) return null;                                        // 이미 도착
+    const list = [{ key: 'START', p: startPt }].concat(ids.map((id, i) => ({ key: i === ids.length - 1 ? 'END' : `${RC.floor}:${id}`, p: course.pts[id] })));
+    const nodes = list.map((n, i) => {
+      const o = { key: n.key, floor: RC.floor, x: Math.round(n.p[0] * 10) / 10, y: Math.round(n.p[1] * 10) / 10, type: 'hall' };
+      const next = list[i + 1], prev = list[i - 1];
+      if (!next) { o.action = 'stop'; return o; }
+      o.heading = compass({ x: n.p[0], y: n.p[1] }, { x: next.p[0], y: next.p[1] });
+      o.next_m = Math.round(dist(n.p, next.p) * CFG.metersPerUnit * 100) / 100;
+      if (i === 0) o.action = 'start';
+      else { const d = turnDir(prev.p, n.p, next.p); o.action = d === 'back' ? 'uturn' : d; }
+      return o;
+    });
+    const total = nodes.reduce((s, n) => s + (n.next_m || 0), 0);
+    return { v: 1, mode: 'course', metersPerUnit: CFG.metersPerUnit, to, total_m: Math.round(total * 10) / 10, nodes };
+  }
+
   function robotPlan(from, room) {
+    if (course) {
+      const goal = courseRoomNode(room);
+      return goal ? coursePlan(from, goal, { room: room.id, label: room.title || room.name, floor: room.floor }) : null;
+    }
     return makePlan(route(from, room, { mode: 'elevator' }));
   }
   // 방이 아닌 한 점(예: 로봇 제자리)으로 가는 계획
   function robotPlanToPoint(from, pt) {
+    if (course) {
+      const near = Number(pt.floor) === RC.floor ? courseNearest(pt) : null;
+      const goal = near ? (near.t < 0.5 ? near.a : near.b) : null;
+      return goal ? coursePlan(from, goal, { room: null, label: pt.label || '제자리', floor: pt.floor }) : null;
+    }
     const room = {
       id: `pt-${pt.floor}-${pt.x}-${pt.y}`, name: pt.label || '제자리', floor: pt.floor, cat: 'neutral',
       rects: [[pt.x - 0.5, pt.y - 0.5, pt.x + 0.5, pt.y + 0.5]], doors: [[pt.x, pt.y]],
@@ -479,6 +569,9 @@ KIS.Router = (function () {
   return {
     route, nearest, josa, displayName, roomCenter, roomDoors, landmark, fmtMeters,
     robotPlan, robotPlanToPoint, locate,
+    robotCourse: RC,
+    // 로봇이 갈 수 있는 방인지 (시범 코스면 코스에 있는 방, 아니면 제자리에서 계획이 나오는지)
+    robotReachable: (room) => (course ? !!courseRoomNode(room) : !!robotPlan(CFG.robotLocation, room)),
     debug: { nodes, floorEdges, attachPoint },
   };
 })();

@@ -187,6 +187,12 @@
 #ifndef UTURN_DIR
 #define UTURN_DIR 'L'
 #endif
+#ifndef END_BY_MARK
+#define END_BY_MARK 1          // 1 = 서버 주행도 갈림길마다 동작·끝 가로선(T)에서 도착 (시범 코스) · 0 = 예전 시간 기준
+#endif
+#ifndef FOLLOW_GIVEUP_MS
+#define FOLLOW_GIVEUP_MS 60000 // 서버 주행에서 다음 갈림길을 이만큼 못 만나면 멈춤
+#endif
 #ifndef ARRIVE_PAUSE_MS
 #define ARRIVE_PAUSE_MS 2000
 #endif
@@ -724,9 +730,15 @@ bool report(const char* action, const String& json) {
   if (ok) parseDrive(out);
   return ok;
 }
+float speedEst = ROBOT_SPEED_MPS;   // 지도 위 속도(m/s) — 지난 구간의 도면 거리 ÷ 걸린 시간으로 맞춤 (앱 지도 위치 표시용)
+void learnSpeed() {                  // 방금 끝난 구간(legFrom → 다음)으로 속도 맞추기
+  unsigned long dur = millis() - legStart;
+  float m = plan[legFrom].nextM;
+  if (dur > 1000 && m > 0) speedEst = constrain(0.5f * speedEst + 0.5f * (m / (dur / 1000.0f)), 0.02f, 3.0f);
+}
 bool reportPassed(int i) {
   String next = (i + 1 < planLen) ? String(plan[i + 1].key) : String("");
-  String json = String("{\"passed\":\"") + plan[i].key + "\",\"next\":\"" + next + "\",\"speed\":" + String(ROBOT_SPEED_MPS, 2) + "}";
+  String json = String("{\"passed\":\"") + plan[i].key + "\",\"next\":\"" + next + "\",\"speed\":" + String(speedEst, 3) + "}";
   Out.printf("[노드] %s 지남 → %s\n", plan[i].key, next.c_str());
   return report("progress", json);
 }
@@ -928,6 +940,7 @@ void arriveEnd() {
 // 노드 j 에 닿았을 때
 void atNode(int j) {
   stopMotors();
+  learnSpeed();
   reportPassed(j);
   if (state != ST_FOLLOW) return;            // 보고 응답에서 계획이 바뀌었으면 loop 가 처리
   Node& n = plan[j];
@@ -944,6 +957,22 @@ void atNode(int j) {
 void followStep() {
   if (obstacleHold()) return;                     // 앞이 막히면 멈춰 기다림 (구간 시계도 멈춤)
   unsigned long now = millis();
+#if END_BY_MARK
+  // 시범 코스: 시간으로 거르지 않고, 갈림길을 볼 때마다 다음 노드의 동작 · 마지막(END)은 끝 가로선(T)을 보면 도착
+  if (junctionSeen(true)) {
+    if (legFrom + 1 >= planLen - 1) { learnSpeed(); arriveEnd(); }
+    else atNode(legFrom + 1);
+    return;
+  }
+  if (liftedNow()) { stopMotors(); state = ST_ERROR; Out.println("[오류] 센서가 모두 검정 — 로봇이 들렸어요?"); return; }
+  lineFollow(speedPwm);
+  logDrive("주행");
+  if (telemetry && millis() - lastTele >= 100) { lastTele = millis(); Out.printf("@m %lu\n", moveMs); }
+  if (now - legStart > (unsigned long)FOLLOW_GIVEUP_MS) {
+    stopMotors(); state = ST_ERROR; Out.println("[오류] 다음 갈림길이 너무 오래 안 나와요 (선을 벗어났을 수 있음)");
+  }
+  return;
+#endif
   bool finalLeg = (legFrom + 1 == planLen - 1);   // 다음이 END 면 시간으로 멈춘다
   if (finalLeg && now - legStart >= legExpected) { arriveEnd(); return; }
 

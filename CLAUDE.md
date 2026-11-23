@@ -37,6 +37,9 @@
   사용자 Mac `~/.zshrc` 에 `run`·`upload` 별칭. Mac 과 로봇이 같은 WiFi 여야 함(Mac 이 다른 WiFi 로 자동 재접속하면 무선이 안 됨).
   서버 쪽 확인: D1 `robot.body_seen_at`(몸체 마지막 인증 접속)·`seen_at`(로봇 화면) — 클라우드 세션이 Cloudflare API 로 본다.
   WiFi: ESP32 는 2.4GHz 만, iPhone 핫스팟은 '호환성 최대화' + 설정 화면을 열어 둬야 보임(172.20.10.x). 시험 중엔 iPhone 핫스팟 `zzzz` 사용.
+- **시범 코스**(사용자 결정): 로봇은 4층 12학년 12-1~12-5 만 다닌다. 선 모양 = `data.js` 의 `robotCourse`(4층 도면 좌표, 제자리 12-5 앞 `H5`),
+  `Router.robotPlan` 은 이 선 위에서만 계획(코스 밖 방은 null → 부르기·데려다주기에서 빠짐), 바닥 테이프 붙이는 법 `docs/prototype-course.md`.
+  펌웨어 `END_BY_MARK 1`: 서버 주행도 시간으로 거르지 않고 갈림길마다 다음 노드 동작, 끝 가로선(T)에서 도착. `HOME_HEADING 'E'`.
 - 길 안내 방식 두 가지(`public/js/guide.js`): 길 안내 화면에서 "데려다주세요"(로봇이 문 앞까지 앞장섬, 로봇 상태 guiding → guided → returning)
   또는 "QR로 받을게요"(휴대폰 길 안내). 데려다주기도 배달과 같은 주행 계획·위치 추정·로봇 API 를 쓴다.
 - D1: `kis-peekok` (id 는 wrangler.toml), 구조 `db/schema.sql` (서버가 처음 요청 때 `CREATE TABLE IF NOT EXISTS` 로 만들기도 함).

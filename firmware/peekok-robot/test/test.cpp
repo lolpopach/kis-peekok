@@ -75,7 +75,7 @@ int main(int argc, char** argv) {
   fake_response = readFile((dir + "/to_5-1.txt").c_str());
   reportPassed(1);
   CHECK(fake_last_path == "/api/robot/progress?fmt=text", "보고 주소 /api/robot/progress?fmt=text");
-  CHECK(fake_last_body == String("{\"passed\":\"1:b2\",\"next\":\"1:b3\",\"speed\":") + String(ROBOT_SPEED_MPS, 2) + "}", "보고 내용 {passed, next, speed}");
+  CHECK(fake_last_body == String("{\"passed\":\"1:b2\",\"next\":\"1:b3\",\"speed\":") + String(speedEst, 3) + "}", "보고 내용 {passed, next, speed}");
   printf("     %s\n", fake_last_body.c_str());
 
   printf("== 엘리베이터: 로봇 화면의 '내렸어요' 로 재출발 ==\n");
@@ -377,6 +377,17 @@ int main(int argc, char** argv) {
     CHECK(strcmp(encName(ENC_TYPE_NONE), "비밀번호 없음") == 0, "보안 방식 이름");
     CHECK(strstr(reasonHelp(15), "비밀번호") && strstr(reasonHelp(202), "비밀번호") && reasonHelp(999)[0] == 0, "끊긴 이유 15·202 → 비밀번호 안내");
   }
+
+  printf("== 시범 코스 계획 (12-5 → 12-1) ==\n");
+  parseDrive(String("ok\nrev 0\nnodes 0\nend\n"));
+  planRev = "z";
+  parseDrive(readFile((dir + "/course_12_1.txt").c_str()));
+  CHECK(planLen == 8, "노드 8개 (출발 · 갈림길 6 · 끝)");
+  CHECK(planLen == 8 && plan[0].action == 's' && plan[0].heading == 'E', "출발: 동쪽(세로 복도 쪽)으로");
+  CHECK(planLen == 8 && plan[1].action == 'L' && plan[2].action == 'S' && plan[3].action == 'R' && plan[4].action == 'S' && plan[5].action == 'S' && plan[6].action == 'L',
+        "12-5 앞 좌 · 12-4 직진 · 꺾이는 곳 우 · 12-3·12-2 직진 · 12-1 좌");
+  CHECK(planLen == 8 && !strcmp(plan[7].key, "END"), "마지막 END (끝 가로선에서 도착)");
+  CHECK(turnFor(HOME_HEADING, plan[0].heading) == 'S', "켤 때 방향(HOME_HEADING)이면 출발할 때 돌지 않음");
   printf("\n%s (%d개 실패)\n", fails ? "실패 있음" : "모두 통과", fails);
   return fails ? 1 : 0;
 }
