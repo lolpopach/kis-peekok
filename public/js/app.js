@@ -14,7 +14,8 @@
   };
   const saved = store.get();
   const state = {
-    location: saved.location || CFG.robotLocation,
+    // 시범 코스(data.js robotCourse)가 있으면 제자리는 늘 코스 출발점 (예전에 저장한 위치는 무시)
+    location: D.robotCourse ? CFG.robotLocation : (saved.location || CFG.robotLocation),
     voice: saved.voice !== undefined ? saved.voice : CFG.voice,
     idleSec: saved.idleSec || CFG.idleTimeoutSec,
     mode: 'stairs',
