@@ -199,11 +199,32 @@ def load_fw(sim_ref, **cfg):
     return fw
 
 
-def make(floor, x, y, heading_deg, gyro=True, bias=0.03, **cfg):
+def make(floor, x, y, heading_deg, gyro=True, bias=0.03, api="rot", **cfg):
+    """api: rot = get_rotation(누적) · yaw = get_yaw 만(-180~180 에서 넘어감) · stuck = 자이로 값이 안 바뀜
+         ns = mbot2·mbuild 모듈 없이 cyberpi.mbot2·cyberpi.quad_rgb_sensor, is_line 은 번호식(1 = 맨 오른쪽)
+         sta = 쿼드 센서에 get_line_sta 만 (0~15, L2 가 높은 비트)"""
     ref = [None]
     fake_modules(ref)
+    cp = sys.modules["cyberpi"]
     if not gyro:
-        del sys.modules["cyberpi"].get_rotation
+        del cp.get_rotation
+    elif api == "yaw":
+        del cp.get_rotation
+        cp.get_yaw = lambda: (ref[0].yaw_deg() + 180.0) % 360.0 - 180.0
+    elif api == "stuck":
+        cp.get_rotation = lambda axis="z": 0.0
+    elif api == "ns":
+        cp.mbot2 = sys.modules["mbot2"]
+        order = {1: "R2", 2: "R1", 3: "L1", 4: "L2"}
+        cp.quad_rgb_sensor = types.SimpleNamespace(is_line=lambda port: ref[0].is_line(order[port]))
+        sys.modules["mbot2"] = None
+        sys.modules["mbuild"] = None
+    elif api == "sta":
+        def sta(ch, index=1):
+            assert ch == "all"
+            v = [ref[0].is_line(c) for c in ("L2", "L1", "R1", "R2")]
+            return v[0] * 8 + v[1] * 4 + v[2] * 2 + v[3]
+        sys.modules["mbuild"].quad_rgb_sensor = types.SimpleNamespace(get_line_sta=sta)
     fw = load_fw(ref, **cfg)
     sim = Sim(floor, fw, x, y, heading_deg, bias=bias)
     ref[0] = sim
@@ -309,6 +330,10 @@ def sweep():
         ("왼쪽 바퀴 8% 셈", {"bias": 0.08}),
         ("오른쪽 바퀴 8% 셈", {"bias": -0.08}),
         ("자이로 없음(바퀴로 각도)", {"gyro": False}),
+        ("자이로 get_yaw 만 (-180~180 넘어감)", {"api": "yaw"}),
+        ("자이로 값이 안 바뀜 (바퀴로 바꿈)", {"api": "stuck"}),
+        ("cyberpi.mbot2 · 번호식 is_line", {"api": "ns"}),
+        ("쿼드 센서 get_line_sta 만", {"api": "sta"}),
         ("테이프 2.5cm", {"tape": 2.5}),
         ("테이프 1.5cm", {"tape": 1.5}),
         ("센서 간격 넓음(±1·±3cm)", {"probes": (-3, -1, 1, 3)}),
@@ -329,7 +354,7 @@ def sweep():
         Sim.WHEEL = c.get("wheel")
         Sim.NOISE = c.get("noise", 0.0)
         Sim.READ_MS = c.get("read_ms", 0)
-        fw, sim, r = make(floor, x, y, h + c.get("skew", 0), gyro=c.get("gyro", True), bias=c.get("bias", 0.03))
+        fw, sim, r = make(floor, x, y, h + c.get("skew", 0), gyro=c.get("gyro", True), bias=c.get("bias", 0.03), api=c.get("api", "rot"))
         sim.max_t = 180000
         r.test_start("LSRLVRLSRE")
         try:
@@ -468,6 +493,21 @@ def server(base, key):
     finally:
         builtins.__import__ = real_import
     check(code == 200 and txt.startswith("ok"), "소켓 HTTP 로도 drive 응답")
+    ur = sys.modules["urequests"]
+    real_req = ur.request
+
+    def broken(*a, **k):
+        raise OSError("TLS handshake (SNI 없음 흉내)")
+    ur.request = broken
+    fw.HTTP_WAY[0] = None
+    try:
+        code, txt = fw.http("GET", "/api/robot/drive")
+        way = fw.HTTP_WAY[0]
+        code2, _ = fw.http("GET", "/api/robot/drive")
+    finally:
+        ur.request = real_req
+    check(code == 200 and code2 == 200 and way == "socket", "urequests 가 실행 중 실패하면 소켓으로 바꿔 계속 (%s)" % way)
+    fw.HTTP_WAY[0] = None
 
     print("== 원격 기록 ==")
     r.flush()

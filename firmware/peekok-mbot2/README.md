@@ -114,4 +114,8 @@ bash firmware/peekok-mbot2/test/run.sh http://127.0.0.1:8788 local-test-key  # �
 
 컴퓨터 시험은 Makeblock 문서에 적힌 함수 이름(`mbot2.drive_speed`, `mbuild.quad_rgb_sensor.is_line`, `cyberpi.get_rotation`,
 `cyberpi.controller.is_press`, `cyberpi.wifi.connect`, `urequests`)을 흉내 냅니다. 실제 이름이 다르면 켤 때 기록 첫 줄의 `API {...}` 에
-`False` 로 나오니, 그 기록을 보고 고치면 됩니다. 쿼드 RGB 의 실제 센서 간격·앞 거리는 시험 범위(±1~3cm, 5.5~9cm) 안이면 그대로 됩니다.
+`False` 로 나오니, 그 기록을 보고 고치면 됩니다.
+그래도 미리 여러 문서의 다른 쓰임을 다 받아 두었습니다(컴퓨터 시험으로 확인):
+`import mbot2`·`mbuild` 가 없으면 `cyberpi.mbot2`·`cyberpi.quad_rgb_sensor`, 쿼드 센서가 `is_line("L2", 1)` 이 안 되면 번호식 `is_line(4…1)`,
+그것도 안 되면 `get_line_sta("all", 1)`(0~15) — 바뀌면 기록에 `[센서] 읽기 방식 …` 이 남습니다. 자이로는 `get_rotation` 이 없으면 `get_yaw`
+(-180~180 에서 넘어가도 이어 붙임), 값이 안 바뀌면 바퀴로 셉니다(`[자이로] …`). `urequests` 가 실행 중 실패하면(오래된 펌웨어의 HTTPS 등) 소켓으로 바꿉니다(`[서버] 소켓으로 붙음`). 쿼드 RGB 의 실제 센서 간격·앞 거리는 시험 범위(±1~3cm, 5.5~9cm) 안이면 그대로 됩니다.

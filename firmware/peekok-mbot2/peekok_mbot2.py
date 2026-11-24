@@ -93,6 +93,9 @@ try:
     import mbuild
 except ImportError:
     mbuild = None
+# 펌웨어에 따라 cyberpi 안에만 있는 경우 (cyberpi.mbot2, cyberpi.quad_rgb_sensor)
+if mbot2 is None and cyberpi is not None:
+    mbot2 = getattr(cyberpi, "mbot2", None)
 
 VERSION = "mbot2-1"
 
@@ -160,7 +163,10 @@ class Body:
         self.right_sign = RIGHT_SIGN
         self.api = {}
         q = getattr(mbuild, "quad_rgb_sensor", None) if mbuild else None
+        if q is None and cyberpi is not None:
+            q = getattr(cyberpi, "quad_rgb_sensor", None)
         self.quad = q
+        self.probe_mode = 0    # 0 is_line("L2",i) · 1 is_line(4..1) · 2 get_line_sta("all",i) 비트 · 3 없음
         self._is_line = _find(q, ["is_line"])
         self._line_sta = _find(q, ["get_line_sta"])
         self._drive = _find(mbot2, ["drive_speed"])
@@ -174,6 +180,9 @@ class Body:
         self.has_gyro = self._rot is not None or self._yaw is not None
         self._spin0 = 0.0
         self._yaw0 = None
+        self._yraw = None      # 자이로 마지막 값 (±180 에서 넘어가도 이어 붙임)
+        self._yacc = 0.0
+        self.gyro_bad = False
         self.api = {
             "quad.is_line": self._is_line is not None, "quad.get_line_sta": self._line_sta is not None,
             "drive_speed": self._drive is not None, "drive_power": self._power is not None,
@@ -243,17 +252,35 @@ class Body:
 
     # 네 센서: (L2, L1, R1, R2) — True = 선(검정) 위
     def probes(self):
-        q = self._is_line
-        if q:
-            v = (q("L2", QUAD_INDEX), q("L1", QUAD_INDEX), q("R1", QUAD_INDEX), q("R2", QUAD_INDEX))
-            v = tuple([bool(x) for x in v])
-        elif self._line_sta:
-            v = tuple([bool(self._line_sta(ch, QUAD_INDEX)) for ch in ("L2", "L1", "R1", "R2")])
-        else:
-            v = (False, False, False, False)
+        v = None
+        while v is None:
+            try:
+                v = self._probes(self.probe_mode)
+            except Exception as e:
+                if self.probe_mode >= 3:
+                    v = (False, False, False, False)
+                else:
+                    log("[센서] 읽기 방식 %d 안 됨(%s) → 다음 방식" % (self.probe_mode, e))
+                    self.probe_mode += 1
+                    self.api["probe_mode"] = self.probe_mode
         if not LINE_IS_BLACK:
             v = tuple([not x for x in v])
         return v
+
+    def _probes(self, mode):
+        q = self._is_line
+        if mode == 0 and q:
+            return tuple([bool(q(ch, QUAD_INDEX)) for ch in ("L2", "L1", "R1", "R2")])
+        if mode == 1 and q:
+            # 번호식: 1 = 맨 오른쪽 … 4 = 맨 왼쪽
+            return tuple([bool(q(n)) for n in (4, 3, 2, 1)])
+        if mode == 2 and self._line_sta:
+            # 0~15, L2 가 가장 높은 비트, 1 = 선
+            n = int(self._line_sta("all", QUAD_INDEX))
+            return (bool(n & 8), bool(n & 4), bool(n & 2), bool(n & 1))
+        if mode >= 3:
+            return (False, False, False, False)
+        raise ValueError("no api")
 
     # 돈 각도(도, 크기만 씀). 자이로가 없으면 바퀴로 계산
     def angle_reset(self):
@@ -263,20 +290,40 @@ class Body:
 
     def angle(self):
         y = self.yaw()
-        if y is not None and self._yaw0 is not None:
-            return abs(y - self._yaw0)
         self.odo()
-        return abs(self.spin - self._spin0)
+        w = abs(self.spin - self._spin0)
+        if y is not None and self._yaw0 is not None and not self.gyro_bad:
+            g = abs(y - self._yaw0)
+            # 자이로 값이 안 바뀌면(멈춘 센서) 바퀴로 센 각도를 씀
+            if w > 40 and g < w * 0.2:
+                self.gyro_bad = True
+                self.api["gyro"] = False
+                log("[자이로] 값이 안 바뀌어요 (자이로 %d도 · 바퀴 %d도) → 바퀴로 셈" % (int(g), int(w)))
+                return w
+            return g
+        return w
 
     def yaw(self):
+        # 누적 각도. get_yaw 는 -180~180 에서 넘어가므로 바뀐 만큼만 이어 붙인다
+        y = None
         try:
             if self._rot:
-                return float(self._rot("z"))
-            if self._yaw:
-                return float(self._yaw())
+                y = float(self._rot("z"))
+            elif self._yaw:
+                y = float(self._yaw())
         except Exception:
+            y = None
+        if y is None:
             return None
-        return None
+        if self._yraw is not None:
+            d = y - self._yraw
+            while d > 180:
+                d -= 360
+            while d < -180:
+                d += 360
+            self._yacc += d
+        self._yraw = y
+        return self._yacc
 
     def pressed(self, name):
         if not self._press:
@@ -391,16 +438,29 @@ def http(method, path, body=None, ctype="application/json"):
         import urequests
     except ImportError:
         urequests = None
-    if urequests is not None:
+    err = ""
+    if urequests is not None and HTTP_WAY[0] != "socket":
         try:
             r = urequests.request(method, url, data=data, headers=hdr)
             code = r.status_code
             txt = r.text
             r.close()
+            HTTP_WAY[0] = "urequests"
             return code, txt
         except Exception as e:
-            return 0, "urequests: %s" % e
-    return _socket_http(method, path, data, hdr)
+            err = "urequests: %s · " % e
+            if HTTP_WAY[0] == "urequests":
+                return 0, err     # 한 번 됐던 방식이면 WiFi·서버 문제 — 소켓으로 바꾸지 않음
+    code, txt = _socket_http(method, path, data, hdr)
+    if code:
+        if HTTP_WAY[0] != "socket":
+            log("[서버] 소켓으로 붙음 (%s)" % (err.strip(" ·") or "urequests 없음"))
+        HTTP_WAY[0] = "socket"
+        return code, txt
+    return 0, err + txt
+
+
+HTTP_WAY = [None]     # 처음 된 방식 (urequests 또는 socket)
 
 
 def _socket_http(method, path, data, hdr):
