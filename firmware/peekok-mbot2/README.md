@@ -9,9 +9,44 @@ ESP32 펌웨어는 그대로 남아 있으니 언제든 되돌릴 수 있습니�
 | `peekok_mbot2.py` | 펌웨어 한 파일 (CyberPi MicroPython). 맨 위 `설정` 에 속도·몸 크기 |
 | `config.example.py` | WiFi·로봇 키 적는 틀 → `config.py` 로 복사 (저장소에 안 올라감) |
 | `tools/build.py` | `config.py` 를 펌웨어에 넣어 올릴 파일 `dist/upload.py` 를 만듦 |
+| `tools/log.py` | 서버에 올라온 로봇 기록 보기 (`-f` 계속 보기, 키는 config.py 에서) |
 | `test/run.sh` | 컴퓨터 시험: 진짜 펌웨어를 가짜 mBot2·가짜 바닥(시범 코스) 위에서 |
 
 ## 기기를 받은 날 — 순서대로
+
+### Claude Code(CLI)에게 맡기기
+
+노트북의 Claude Code 에 아래를 통째로 붙여 넣으면 1~7번을 같이 해 줍니다(올리기 클릭·버튼 누르기만 사람이).
+
+````text
+피콕 로봇 몸체를 mBot2(CyberPi)로 처음 켜는 날이야. 저장소는 GitHub `lolpopach/kis-peekok`(main 브랜치)이고, 이 컴퓨터에 없으면 받아 오고 있으면 `git pull` 해 줘.
+먼저 `CLAUDE.md` 와 `firmware/peekok-mbot2/README.md` 를 다 읽고 그대로 따라 줘. 대화는 한국어로.
+
+지킬 것:
+- WiFi 비밀번호와 로봇 키(ROBOT_KEY)는 화면·채팅·커밋 어디에도 내지 마. `config.py` 는 gitignore 라 저장소에 안 올라가.
+- ESP32 펌웨어(`firmware/peekok-robot/`)와 웹·서버 코드는 건드리지 마. 고칠 곳은 `firmware/peekok-mbot2/` 안만.
+- 내가 해야 하는 일(클릭·버튼·로봇 놓기)은 한 번에 하나씩, 어디를 누르는지까지 짧게 알려 주고 내가 "했어" 할 때까지 기다려.
+
+순서:
+1. `firmware/peekok-mbot2/config.example.py` 를 `config.py` 로 복사하고, 나한테 WiFi 이름·WiFi 비밀번호·로봇 키를 물어봐서 채워 줘
+   (2.4GHz 만 됨. iPhone 핫스팟이면 '호환성 최대화'를 켜라고 알려 줘). 서버는 기본값 kis-peekok.pages.dev 그대로.
+2. `cd firmware/peekok-mbot2 && python3 tools/build.py` 로 `dist/upload.py` 를 만들고, 그 내용을 클립보드에 복사해 줘
+   (Mac `pbcopy < dist/upload.py`, Windows `Get-Content dist/upload.py -Raw | Set-Clipboard`). 키를 출력하지 않게 조심.
+3. 올리기는 내가 해: mLink 실행 → 브라우저에서 ide.mblock.cc → 장치 CyberPi 추가 → USB 로 연결 → Python 편집 모드 → 붙여 넣기 → 업로드.
+   막히면 화면에 보이는 걸 물어보고 같이 풀어 줘. 업로드가 끝나면 CyberPi 화면에 `PEEKOK mBot2` 가 떠야 해.
+4. `python3 tools/log.py` 로 서버에 올라온 기록을 읽어(키는 config.py 에서 읽고 안 보여 줌). 켤 때 첫 줄의 `API {...}` 에 False 가 있으면
+   그 함수 이름이 이 기기와 다른 거야 → `peekok_mbot2.py` 의 Body 를 고치고 `bash test/run.sh` 통과 → 다시 build → 내가 다시 업로드.
+   기록이 아예 없으면 CyberPi 화면 글자를 나한테 물어보고 WiFi 부터 봐.
+5. 점검을 README 순서대로 하나씩 시켜 줘: B(점검, 바닥에 놓고) → A(선 따라가기 시험) → 조이스틱 누르기(코스 시험, 제자리 12-5 앞 동쪽 보게)
+   → 휴대폰으로 피콕 부르기(진짜 주행). 매번 끝나면 `python3 tools/log.py` 로 기록을 보고 결과를 짧게 말해 줘.
+   주행 중 보려면 `python3 tools/log.py -f`.
+6. 문제가 보이면 기록으로 원인을 찾고, 설정값(속도·KP·DECIDE_CM 같은 것)은 `config.py` 에 덮어쓰기로, 코드 문제는 `peekok_mbot2.py` 에서 고쳐.
+   코드를 고치면 `bash test/run.sh` 가 통과해야 하고, 고친 걸 다시 build 해서 클립보드에 넣고 나한테 다시 올리라고 해.
+7. 다 되면 고친 코드(설정 비밀값 빼고)를 커밋하고, CLAUDE.md 의 배포 절차대로 작업 브랜치에 푸시한 뒤 main 에 합쳐 푸시해.
+   확인된 실제 함수 이름·잘 맞은 설정값은 README "기기에서만 확인할 수 있는 것" 에 적어 둬.
+````
+
+### 손으로 할 때
 
 준비물: mBot2 (기본 구성: CyberPi + 쿼드 RGB 센서, 초음파는 안 씀), USB-C 선, 노트북(Windows, mLink 설치됨), 2.4GHz WiFi.
 
@@ -33,7 +68,7 @@ ESP32 펌웨어는 그대로 남아 있으니 언제든 되돌릴 수 있습니�
 7. **진짜 주행**: 휴대폰으로 피콕을 부르거나 로봇 화면에서 "데려다주세요". ESP32 때와 똑같이 움직입니다.
 
 기기 앞 동작은 모두 **기록(로그)** 으로 서버에 올라갑니다(멈춰 있을 때 몇 초마다). 그래서 Claude 가 클라우드에서
-D1 `robot_log` 표를 읽어 원인을 볼 수 있습니다 — 로그를 복사해 올 필요가 없습니다.
+D1 `robot_log` 표를 읽어 원인을 볼 수 있습니다 — 로그를 복사해 올 필요가 없습니다. 노트북에서는 `python3 tools/log.py` (`-f` 면 계속).
 
 ## CyberPi 버튼
 
