@@ -39,6 +39,15 @@
   사용자 Mac `~/.zshrc` 에 `run`·`upload` 별칭. Mac 과 로봇이 같은 WiFi 여야 함(Mac 이 다른 WiFi 로 자동 재접속하면 무선이 안 됨).
   서버 쪽 확인: D1 `robot.body_seen_at`(몸체 마지막 인증 접속)·`seen_at`(로봇 화면) — 클라우드 세션이 Cloudflare API 로 본다.
   WiFi: ESP32 는 2.4GHz 만, iPhone 핫스팟은 '호환성 최대화' + 설정 화면을 열어 둬야 보임(172.20.10.x). 시험 중엔 iPhone 핫스팟 `zzzz` 사용.
+- **로봇 몸체 mBot2**(사용자 결정, 2026-11-24: 아두이노 문제가 잦아 mBot2 로 바꾸되 ESP32 코드는 예비로 모두 남김, 한 번에 하나만 켬).
+  펌웨어 `firmware/peekok-mbot2/peekok_mbot2.py`(CyberPi MicroPython 한 파일, f-문자열 안 씀). ESP32 와 **같은 글자 형식 API**(몸체 규약 v1)에
+  요청 머리 `X-Robot-Body: mbot2` → 서버 `robot.body_kind`(헤더 없으면 `arduino`), 로봇 화면 "로봇 몸체(mBot2) 연결됨".
+  기본 구성(CyberPi + 쿼드 RGB 센서 앞 한 줄 L2 L1 R1 R2, 인코더 모터), 초음파는 안 씀(사용자 결정). 갈림길 = 테이프 한 줄로 못 덮는 넓은 검정.
+  올리기는 **mLink + mBlock 웹 Python 편집기**(사용자 결정): `config.py`(gitignore) 채우고 `python tools/build.py` → `dist/upload.py` 붙여 넣고 업로드.
+  CyberPi 버튼: 대기 A 선 시험 · B 점검(바퀴 방향 자동, `peekok_cal.txt`) · 조이스틱 코스 시험, 달리는 중 B 멈춤, 엘리베이터 A 다시 출발.
+  무선 시리얼이 없어서 기록을 `POST /api/robot/log`(D1 `robot_log`, 최근 2000줄)로 보냄 → 클라우드 세션이 D1 로 원인을 본다.
+  컴퓨터 시험 `bash firmware/peekok-mbot2/test/run.sh [서버 주소 키]` (가짜 mBot2·가짜 시범 코스 바닥 + 로봇 화면 역할). 실제 Makeblock 함수 이름은
+  기기에서 처음 켤 때 기록의 `API {...}` 로 확인 (문서 기준으로 작성, 2026-11 기기 아직 없음).
 - **시범 코스**(사용자 결정): 로봇은 4층 12학년 12-1~12-5 만 다닌다. 선 모양 = `data.js` 의 `robotCourse`(4층 도면 좌표, 제자리 12-5 앞 `H5`),
   `Router.robotPlan` 은 이 선 위에서만 계획(코스 밖 방은 null → 부르기·데려다주기에서 빠짐), 바닥 테이프 붙이는 법 `docs/prototype-course.md`.
   펌웨어 `END_BY_MARK 1`: 서버 주행도 시간으로 거르지 않고 갈림길마다 다음 노드 동작, 끝 가로선(T)에서 도착. `HOME_HEADING 'E'`.

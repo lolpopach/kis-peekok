@@ -17,11 +17,11 @@
  *
  *  target = { room, label, floor, x, y, plan }  — plan 은 라인 트레이스용 노드 경로 (js/router.js 의 robotPlan)
  *
- *  ?fmt=text 를 붙이면 (ESP8266 같은 로봇 몸체용) GET /api/robot/drive 와 같은 짧은 글자 형식으로 답한다.
+ *  ?fmt=text 를 붙이면 (ESP32·ESP8266·mBot2 로봇 몸체용) GET /api/robot/drive 와 같은 짧은 글자 형식으로 답한다.
  */
 import {
   getDb, getRobot, setRobot, json, handle, readBody, requireRobot, text, roomId, newId,
-  jsonField, HttpError, driveText, ROBOT_ID,
+  jsonField, HttpError, driveText, markBodySeen,
 } from '../../../lib/shared.js';
 import { robotState } from '../../../lib/robot.js';
 
@@ -146,7 +146,7 @@ export const onRequestPost = handle(async ({ request, env, params }) => {
   const robot = await getRobot(db);
   await fn(db, await readBody(request), robot, Date.now());
   if (new URL(request.url).searchParams.get('fmt') === 'text') {
-    await db.prepare('UPDATE robot SET body_seen_at = ? WHERE id = ?').bind(Date.now(), ROBOT_ID).run();
+    await markBodySeen(db, request);
     return driveText(await getRobot(db));
   }
   return json(await robotState(db));

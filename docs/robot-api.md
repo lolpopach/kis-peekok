@@ -107,9 +107,18 @@ X-Robot-Key: <로봇 키>
 로봇 몸체가 아직 연결되지 않았을 때는 태블릿의 "제가 불렀어요 / 제가 받는 사람이에요 / 제자리에 도착했어요" 버튼이 같은 일을 합니다.
 제자리로 돌아갈 때 주행 보고가 하나도 없으면 예상 시간이 지난 뒤 자동으로 도착 처리합니다.
 
-## ESP32·ESP8266 같은 작은 보드용: 짧은 글자 형식
+## 로봇 몸체 규약 v1: 짧은 글자 형식 (ESP32·ESP8266·mBot2)
 
-ESP32·ESP8266 은 메모리가 작아서 큰 JSON 대신 글자 형식을 씁니다. 펌웨어: `firmware/peekok-robot/`.
+로봇 몸체는 모두 이 글자 형식으로 말합니다. 서버·웹은 어떤 몸체가 달리는지 모르고 같은 계획을 주고 같은 보고를 받으므로,
+몸체를 바꿔도 웹은 그대로입니다. 몸체 둘은 같은 로봇 키를 쓰니 **한 번에 하나만** 켭니다.
+
+| 몸체 | 펌웨어 | 요청 머리 `X-Robot-Body` |
+| --- | --- | --- |
+| ESP32·ESP8266 (Arduino) | `firmware/peekok-robot/` | 없음 → 서버가 `arduino` 로 기록 |
+| Makeblock mBot2 (CyberPi MicroPython) | `firmware/peekok-mbot2/` | `mbot2` |
+
+서버는 몸체 요청마다 `robot.body_seen_at`·`robot.body_kind` 를 기록하고, `GET /api/robot` 의 `robot.bodyKind` 로 로봇 화면에
+"로봇 몸체(mBot2) 연결됨" 처럼 보여 줍니다.
 
 `GET /api/robot/drive` (헤더 `X-Robot-Key`) — 부를 때마다 로봇 화면에 "로봇 몸체 연결됨" 이 표시됩니다.
 
@@ -135,6 +144,12 @@ end
 - POST 동작에 `?fmt=text` 를 붙이면 (`/api/robot/progress?fmt=text`, `/api/robot/arrived?fmt=text`) 응답도 이 형식입니다.
   노드 보고 응답만 보고도 계획이 바뀌었는지 알 수 있어 따로 확인할 필요가 없습니다.
 
+### 몸체 기록 — `POST /api/robot/log`
+
+본문은 글자(한 줄 = 기록 한 줄, 한 번에 60줄까지) 또는 `{ "lines": [...] }`. 서버 D1 `robot_log` 표에 최근 2000줄을 남깁니다.
+`?fmt=text` 를 붙이면 drive 와 같은 글자 형식으로 답하므로, 기록 보내기와 상태 확인을 한 번에 합니다(mBot2 가 대기 중 이렇게 씀).
+`GET /api/robot/log?since=<id>&limit=<n>` (로봇 키) 로 읽습니다.
+
 ### 엘리베이터
 
 라인 트레이스 로봇은 엘리베이터를 스스로 탈 수 없으므로 사람의 도움을 받습니다.
@@ -142,7 +157,7 @@ end
 1. 로봇이 `elevator` 노드에 닿으면 멈추고 그 노드를 `progress` 로 보고합니다.
 2. 로봇 얼굴 화면에 "엘리베이터에 태워 주세요! N층에서 내려 주세요" 가 뜨고 음성으로도 말합니다.
 3. 사람이 태워 N층에서 내려, 출구 방향(`exit` 노드의 `heading`)으로 선 위에 놓습니다.
-4. 로봇의 **FLASH/BOOT 버튼** 을 누르거나, 로봇 화면의 **"N층에서 내렸어요 · 다시 출발"** 을 누르면
+4. 로봇의 **FLASH/BOOT 버튼**(mBot2 는 CyberPi **A 버튼**)을 누르거나, 로봇 화면의 **"N층에서 내렸어요 · 다시 출발"** 을 누르면
    (서버의 `passed` 가 출구 노드로 바뀜) 로봇이 이어서 달립니다.
 
 ## 그 밖의 로봇 API (`POST /api/robot/<동작>`)

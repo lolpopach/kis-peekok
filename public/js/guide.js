@@ -305,7 +305,7 @@ KIS.Guide = (function () {
         case 'escort': start(); return;
         case 'gd-arrived': DL.act('arrived', {}); return;
         case 'gd-elevator-out': {
-          // 로봇 몸체(ESP8266)는 '지난 노드'가 엘리베이터 출구로 바뀌면 이어서 출발한다 (배달과 같은 방식)
+          // 로봇 몸체(ESP32·mBot2)는 '지난 노드'가 엘리베이터 출구로 바뀌면 이어서 출발한다 (배달과 같은 방식)
           const ev = DL.elevatorWait(), r = srv().robot;
           if (ev) DL.act('progress', { passed: ev.exit, next: ev.after, speed: r.progress && r.progress.speed });
           return;

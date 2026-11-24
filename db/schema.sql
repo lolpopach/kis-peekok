@@ -43,5 +43,14 @@ CREATE TABLE IF NOT EXISTS robot (
   progress    TEXT,                    -- 라인 트레이스 주행 보고 JSON {passed,next,at,speed} (노드를 지날 때마다)
   seen_at     INTEGER,                 -- 로봇 화면이 마지막으로 서버에 접속한 시각
   updated_at  INTEGER,
-  body_seen_at INTEGER                 -- 로봇 몸체(ESP8266)가 마지막으로 서버에 접속한 시각
+  body_seen_at INTEGER,                -- 로봇 몸체(ESP32·ESP8266·mBot2)가 마지막으로 서버에 접속한 시각
+  body_kind   TEXT                     -- 마지막으로 접속한 몸체: 'arduino'(ESP32·ESP8266) | 'mbot2' (서버가 없으면 자동으로 열 추가)
+);
+
+-- 로봇 몸체 기록(로그) — POST /api/robot/log. 최근 2000줄만 남김
+CREATE TABLE IF NOT EXISTS robot_log (
+  id    INTEGER PRIMARY KEY AUTOINCREMENT,
+  at    INTEGER NOT NULL,
+  body  TEXT,
+  line  TEXT NOT NULL
 );

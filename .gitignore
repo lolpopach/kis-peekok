@@ -4,3 +4,6 @@ node_modules/
 .DS_Store
 firmware/**/config.h
 firmware/peekok-robot/tools/course-map/.settings.json
+firmware/peekok-mbot2/config.py
+firmware/peekok-mbot2/dist/
+__pycache__/

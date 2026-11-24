@@ -77,6 +77,7 @@ KIS.Delivery = (function () {
   /* ── 장소·위치 도우미 ── */
   const roomName = (id) => { const r = D.roomById(id); return r ? RT.displayName(r) : (id || ''); };
   const label = (id, lbl) => lbl || roomName(id);
+  const bodyName = (r) => (r && r.bodyKind === 'mbot2' ? 'mBot2' : 'ESP32');   // 로봇 몸체 종류 (서버 robot.bodyKind)
   const honor = (n) => (/님$/.test(n) ? n : `${n}님`); // '보건 선생님' → 그대로, '김민지' → '김민지님'
   const home = () => app.state.location;
   const now = () => Date.now() + skew;
@@ -360,7 +361,7 @@ KIS.Delivery = (function () {
     const loc = r && r.target && r.target.plan && r.progress ? RT.locate(r.target.plan, r.progress, now()) : null;
     if (!loc) {
       liveMap.hideRobot();
-      if (info) info.textContent = r && r.bodyOnline ? '로봇 몸체 연결됨 · 출발을 기다리는 중' : '로봇 몸체(ESP8266)가 연결되면 지도에서 실시간 위치가 보여요';
+      if (info) info.textContent = r && r.bodyOnline ? `로봇 몸체(${bodyName(r)}) 연결됨 · 출발을 기다리는 중` : '로봇 몸체가 연결되면 지도에서 실시간 위치가 보여요';
       return;
     }
     if (loc.floor !== liveMap.floorShown) { mountMap(); return; }
@@ -415,7 +416,7 @@ KIS.Delivery = (function () {
       }
       case 'dl-arrived': act('arrived', {}); break;
       case 'dl-elevator-out': {
-        // 로봇 몸체(ESP8266)는 '지난 노드'가 엘리베이터 출구로 바뀌면 이어서 출발한다
+        // 로봇 몸체(ESP32·mBot2)는 '지난 노드'가 엘리베이터 출구로 바뀌면 이어서 출발한다
         const ev = elevatorWait();
         if (ev) act('progress', { passed: ev.exit, next: ev.after, speed: srv.robot.progress && srv.robot.progress.speed });
         break;
@@ -513,7 +514,7 @@ KIS.Delivery = (function () {
     };
     h.homeExtra = () => (['idle', 'returning'].includes(mode()) ? `<button class="deliver-btn" data-action="dl-walkup">${I('box')}<span>배달 보내기</span></button>` : '');
     h.adminExtra = () => `<div class="admin-dl"><b>배달 연결</b><span class="${online ? 'is-ok' : 'is-bad'}">${online ? '연결됨' : online === false ? '연결 안 됨' : '확인 중'}</span>
-      <b>로봇 몸체(ESP8266)</b><span class="${srv && srv.robot.bodyOnline ? 'is-ok' : 'is-bad'}">${srv && srv.robot.bodyOnline ? '연결됨' : '연결 안 됨'}</span>
+      <b>로봇 몸체${srv && srv.robot.bodyKind ? `(${bodyName(srv.robot)})` : ''}</b><span class="${srv && srv.robot.bodyOnline ? 'is-ok' : 'is-bad'}">${srv && srv.robot.bodyOnline ? '연결됨' : '연결 안 됨'}</span>
       <small>로봇 상태: ${mode()}${srv && srv.queue ? ` · 기다리는 호출 ${srv.queue.length}건` : ''}</small>
       <button class="btn" data-adm="dl-reset">${I('refresh')}배달 초기화</button></div>`;
     h.onAdmin = (a) => {
